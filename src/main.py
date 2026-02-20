@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -117,10 +118,12 @@ async def run_analysis(
     print(f"✅ Analysis completed in {elapsed:.1f} seconds")
     print("═" * 70)
 
-    # ── Extract final report ──────────────────────────────────────────
+    # ── Extract final report + sources ────────────────────────────────
     from src.agents.nodes import _extract_text
+    from langchain_core.messages import ToolMessage as _ToolMessage
 
     final_report = ""
+    sources = {"news": [], "market": [], "rag": []}
 
     # Try to get the report from graph state snapshot
     try:
@@ -131,8 +134,8 @@ async def run_analysis(
             final_report = _extract_text(raw).strip()
 
             # Fallback: extract from market_synthesizer messages
+            messages = snapshot.values.get("messages", [])
             if not final_report:
-                messages = snapshot.values.get("messages", [])
                 for msg in reversed(messages):
                     if hasattr(msg, "name") and msg.name == "market_synthesizer":
                         final_report = _extract_text(msg.content).strip()
@@ -146,10 +149,67 @@ async def run_analysis(
                             final_report = _extract_text(msg.content).strip()
                             if final_report:
                                 break
-    except Exception as e:
-        final_report = f"Report extraction failed: {e}"
 
-    return final_report
+            # ── Extract sources from ToolMessages ─────────────────────
+            for msg in messages:
+                if not isinstance(msg, _ToolMessage):
+                    continue
+                try:
+                    data = json.loads(msg.content)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                # News articles (from search_geopolitical_news)
+                if "articles" in data:
+                    for article in data["articles"]:
+                        entry = {
+                            "title": article.get("title", ""),
+                            "url": article.get("url", ""),
+                            "source": article.get("source", ""),
+                            "date": article.get("date", ""),
+                        }
+                        if entry["title"] and entry not in sources["news"]:
+                            sources["news"].append(entry)
+
+                # Web search results (from search_web_general)
+                elif "results" in data and "articles" not in data:
+                    for result in data["results"]:
+                        entry = {
+                            "title": result.get("title", ""),
+                            "url": result.get("href", ""),
+                            "source": "Web",
+                            "date": "",
+                        }
+                        if entry["title"] and entry not in sources["news"]:
+                            sources["news"].append(entry)
+
+                # Market data (from get_market_data)
+                elif "market_snapshot" in data or "company" in data:
+                    entry = {
+                        "company": data.get("company", ""),
+                        "ticker": data.get("ticker", ""),
+                        "price": data.get("market_snapshot", {}).get("current_price", ""),
+                        "pe_ratio": data.get("financial_ratios", {}).get("pe_ratio", ""),
+                    }
+                    if entry["company"] and entry not in sources["market"]:
+                        sources["market"].append(entry)
+
+                # RAG documents (from search_corporate_disclosures)
+                elif "documents" in data:
+                    for doc in data["documents"]:
+                        entry = {
+                            "source": doc.get("source", ""),
+                            "company": doc.get("company", ""),
+                            "type": doc.get("document_type", ""),
+                            "score": doc.get("relevance_score", 0),
+                        }
+                        if entry["source"] and entry not in sources["rag"]:
+                            sources["rag"].append(entry)
+
+    except Exception as e:
+        final_report = final_report or f"Report extraction failed: {e}"
+
+    return final_report, sources
 
 
 async def main():
@@ -168,7 +228,7 @@ async def main():
 
     print("🚀 Initializing agents...\n")
 
-    report = await run_analysis(query=query, use_redis=use_redis)
+    report, sources = await run_analysis(query=query, use_redis=use_redis)
 
     print("\n" + "═" * 70)
     print("  📊 FINAL INTEGRATED RISK REPORT")

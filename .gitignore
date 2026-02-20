@@ -24,3 +24,5 @@ output/
 
 # Docker
 docker-compose.override.yml
+
+glossaire.md

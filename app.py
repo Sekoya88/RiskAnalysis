@@ -5,6 +5,7 @@ Professional risk analysis dashboard with:
   - Clean, minimal design
   - Real-time agent progress tracking
   - Interactive risk score visualisation
+  - Sources panel showing data provenance
   - Report history management
 
 Launch:  streamlit run app.py
@@ -12,6 +13,7 @@ Launch:  streamlit run app.py
 
 import asyncio
 import glob
+import html as html_mod
 import os
 import re
 import time
@@ -24,7 +26,7 @@ from src.main import run_analysis
 # ── Page Config ───────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Risk Assessment — Agentic Framework",
-    page_icon="📊",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -42,6 +44,19 @@ st.markdown("""
 
     /* Hide Streamlit branding */
     #MainMenu, footer, header { visibility: hidden; }
+
+    /* ── Prevent sidebar collapse ────────────────────── */
+    button[data-testid="stSidebarCollapseButton"],
+    button[kind="headerNoPadding"],
+    section[data-testid="stSidebar"] > div > button {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] {
+        min-width: 320px !important;
+        max-width: 320px !important;
+        background: white !important;
+        border-right: 1px solid #e5e7eb !important;
+    }
 
     /* ── Typography ──────────────────────────────────── */
     h1, h2, h3 { color: #1a1a2e !important; font-weight: 700 !important; }
@@ -186,6 +201,49 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 
+    /* ── Sources Panel ───────────────────────────────── */
+    .source-card {
+        background: #f9fafb;
+        border: 1px solid #f3f4f6;
+        border-radius: 8px;
+        padding: 0.8rem 1rem;
+        margin: 0.4rem 0;
+        transition: all 0.15s ease;
+    }
+    .source-card:hover {
+        background: #f3f4f6;
+        border-color: #e5e7eb;
+    }
+    .source-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #1a1a2e;
+        margin-bottom: 0.15rem;
+    }
+    .source-title a {
+        color: #3b82f6;
+        text-decoration: none;
+    }
+    .source-title a:hover { text-decoration: underline; }
+    .source-meta {
+        font-size: 0.7rem;
+        color: #9ca3af;
+    }
+    .source-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .badge-news { background: #dbeafe; color: #1d4ed8; }
+    .badge-market { background: #dcfce7; color: #166534; }
+    .badge-rag { background: #fef3c7; color: #92400e; }
+    .badge-live { background: #dcfce7; color: #166534; }
+    .badge-static { background: #fee2e2; color: #991b1b; }
+
     /* ── Welcome Card ────────────────────────────────── */
     .welcome-card {
         background: white;
@@ -244,11 +302,7 @@ st.markdown("""
         border-bottom: 1px solid #f3f4f6;
     }
 
-    /* ── Sidebar ─────────────────────────────────────── */
-    section[data-testid="stSidebar"] {
-        background: white !important;
-        border-right: 1px solid #e5e7eb !important;
-    }
+    /* ── Sidebar labels & elements ────────────────────── */
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3 {
@@ -303,7 +357,7 @@ st.markdown("""
 # ── Header ────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header">
-    <h1>📊 Risk Assessment Framework</h1>
+    <h1>Risk Assessment Framework</h1>
     <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Gemini 2.5 Flash</p>
 </div>
 """, unsafe_allow_html=True)
@@ -342,14 +396,15 @@ EXAMPLE_QUERIES = {
 }
 
 # ── Session State ─────────────────────────────────────────────────────
-for key, default in [("running", False), ("report", None), ("elapsed", 0)]:
+defaults = {"running": False, "report": None, "sources": None, "elapsed": 0}
+for key, default in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
+    st.markdown("### Configuration")
 
     selected = st.selectbox("Requête type", list(EXAMPLE_QUERIES.keys()))
     query = st.text_area(
@@ -362,7 +417,7 @@ with st.sidebar:
     use_redis = st.toggle("Redis (persistance)", value=False)
 
     run_btn = st.button(
-        "🚀  Lancer l'Analyse",
+        "Lancer l'Analyse",
         type="primary",
         use_container_width=True,
         disabled=st.session_state.running or not query.strip(),
@@ -371,7 +426,7 @@ with st.sidebar:
     st.markdown("---")
 
     # History
-    st.markdown("### 📂 Historique")
+    st.markdown("### Historique")
     output_dir = os.path.join(os.path.dirname(__file__), "output")
     reports = sorted(glob.glob(os.path.join(output_dir, "risk_report_*.md")), reverse=True)
 
@@ -381,9 +436,9 @@ with st.sidebar:
         if st.button("Voir ce rapport", use_container_width=True):
             with open(os.path.join(output_dir, selected_report)) as f:
                 content = f.read()
-            # Strip the markdown header to show only the report body
             idx = content.find("---\n\n")
             st.session_state.report = content[idx + 5:].strip() if idx >= 0 else content
+            st.session_state.sources = None  # No sources for saved reports
             st.session_state.elapsed = 0
     else:
         st.caption("Aucun rapport disponible.")
@@ -467,14 +522,13 @@ def _render_metrics(scores: dict):
     if overall is None:
         return
 
-    cls = _score_class(overall)
     entity = scores.get("entity", "N/A")
     rating = scores.get("rating", "N/A")
 
     cols = st.columns(6)
     items = [
         ("Entité", entity, ""),
-        ("Score Global", f"{overall}/100", cls),
+        ("Score Global", f"{overall}/100", _score_class(overall)),
         ("Rating", rating, ""),
         ("Géopolitique", f"{scores.get('geopolitical', '—')}/100", _score_class(scores.get('geopolitical', 0)) if 'geopolitical' in scores else ""),
         ("Crédit", f"{scores.get('credit', '—')}/100", _score_class(scores.get('credit', 0)) if 'credit' in scores else ""),
@@ -540,10 +594,100 @@ def _render_radar(scores: dict):
         pass
 
 
+def _render_sources(sources: dict):
+    """Render the sources panel showing data provenance."""
+    if not sources:
+        return
+
+    has_any = any(sources.get(k) for k in ["news", "market", "rag"])
+    if not has_any:
+        return
+
+    st.markdown('<div class="section-title">Sources utilisées</div>', unsafe_allow_html=True)
+
+    tabs = []
+    tab_keys = []
+    if sources.get("news"):
+        tabs.append(f"📰 Actualités ({len(sources['news'])})")
+        tab_keys.append("news")
+    if sources.get("market"):
+        tabs.append(f"📈 Données de marché ({len(sources['market'])})")
+        tab_keys.append("market")
+    if sources.get("rag"):
+        tabs.append(f"📄 Documents RAG ({len(sources['rag'])})")
+        tab_keys.append("rag")
+
+    if not tabs:
+        return
+
+    st_tabs = st.tabs(tabs)
+
+    for tab, key in zip(st_tabs, tab_keys):
+        with tab:
+            if key == "news":
+                for article in sources["news"]:
+                    title = html_mod.escape(article.get("title", "Sans titre"))
+                    url = article.get("url", "")
+                    source = html_mod.escape(article.get("source", ""))
+                    date = article.get("date", "")
+                    date_short = date[:10] if date else ""
+
+                    link = f'<a href="{url}" target="_blank">{title}</a>' if url else title
+                    st.markdown(f"""
+                    <div class="source-card">
+                        <div class="source-title">{link}</div>
+                        <div class="source-meta">
+                            <span class="source-badge badge-news">News</span>
+                            <span class="source-badge badge-live">Live</span>
+                            &nbsp; {source} {(' · ' + date_short) if date_short else ''}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            elif key == "market":
+                for data in sources["market"]:
+                    company = html_mod.escape(data.get("company", ""))
+                    ticker = data.get("ticker", "")
+                    price = data.get("price", "")
+                    pe = data.get("pe_ratio", "")
+                    st.markdown(f"""
+                    <div class="source-card">
+                        <div class="source-title">{company} ({ticker})</div>
+                        <div class="source-meta">
+                            <span class="source-badge badge-market">Market Data</span>
+                            <span class="source-badge badge-live">Live</span>
+                            &nbsp; Prix : {price} &nbsp;|&nbsp; P/E : {pe}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            elif key == "rag":
+                st.caption(
+                    "⚠️ Documents seed statiques (2024-2025). "
+                    "Pour les mettre à jour, ajoutez vos propres fichiers dans le ChromaDB."
+                )
+                for doc in sources["rag"]:
+                    source_name = html_mod.escape(doc.get("source", ""))
+                    company = html_mod.escape(doc.get("company", ""))
+                    doc_type = doc.get("type", "")
+                    score = doc.get("score", 0)
+                    st.markdown(f"""
+                    <div class="source-card">
+                        <div class="source-title">{source_name}</div>
+                        <div class="source-meta">
+                            <span class="source-badge badge-rag">RAG</span>
+                            <span class="source-badge badge-static">Static</span>
+                            &nbsp; {company} · {doc_type} · Score : {score:.2f}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+
 # ── Main — Run Analysis ──────────────────────────────────────────────
 if run_btn and query.strip():
     st.session_state.running = True
     st.session_state.report = None
+    st.session_state.sources = None
 
     st.markdown('<div class="section-title">Pipeline d\'analyse</div>', unsafe_allow_html=True)
     pipeline_placeholder = st.empty()
@@ -558,9 +702,10 @@ if run_btn and query.strip():
     start = time.time()
 
     try:
-        report = asyncio.run(run_analysis(query=query, use_redis=use_redis))
+        report, sources = asyncio.run(run_analysis(query=query, use_redis=use_redis))
         elapsed = time.time() - start
         st.session_state.report = report
+        st.session_state.sources = sources
         st.session_state.elapsed = elapsed
 
         with pipeline_placeholder.container():
@@ -588,14 +733,13 @@ if st.session_state.report:
     st.markdown('<div class="section-title">Scores de risque</div>', unsafe_allow_html=True)
     _render_metrics(scores)
 
-    # Radar chart
+    # Radar chart + summary
     if all(k in scores for k in ["geopolitical", "credit", "market", "esg"]):
         col_left, col_right = st.columns([1, 1])
         with col_left:
             st.markdown('<div class="section-title">Radar de risque</div>', unsafe_allow_html=True)
             _render_radar(scores)
         with col_right:
-            # Quick summary
             st.markdown('<div class="section-title">Synthèse rapide</div>', unsafe_allow_html=True)
             overall = scores.get("overall", 0)
             label = _score_label(overall)
@@ -619,13 +763,16 @@ if st.session_state.report:
             </div>
             """, unsafe_allow_html=True)
 
+    # Sources panel
+    _render_sources(st.session_state.sources)
+
     # Full report
     st.markdown('<div class="section-title">Rapport complet</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="report-block">{report}</div>', unsafe_allow_html=True)
 
     # Download
     st.download_button(
-        "⬇️  Télécharger le rapport",
+        "Télécharger le rapport",
         data=report,
         file_name=f"risk_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
         mime="text/markdown",
