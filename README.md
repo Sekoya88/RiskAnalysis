@@ -1,4 +1,4 @@
-# 🌐 Agentic LLM Framework for Credit & Geopolitical Risk Assessment
+# Agentic LLM Framework for Credit & Geopolitical Risk Assessment
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://python.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.0-green.svg)](https://github.com/langchain-ai/langgraph)
