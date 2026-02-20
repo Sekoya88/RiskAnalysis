@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  # ── Redis — Fault-tolerant state management & checkpointing ───────
+  redis:
+    image: redis:7-alpine
+    container_name: risk-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Risk Analysis Application ─────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: risk-analysis
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - PYTHONPATH=/app
+    volumes:
+      - ./output:/app/output
+      - ./data:/app/data
+    stdin_open: true
+    tty: true
+    restart: "no"
+
+volumes:
+  redis_data:
+    driver: local

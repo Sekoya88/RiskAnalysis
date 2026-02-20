@@ -1,0 +1,15 @@
+langgraph
+langchain
+langchain-core
+langchain-google-genai
+langchain-community
+langchain-chroma
+langgraph-checkpoint-redis
+redis
+asyncio
+duckduckgo-search
+yfinance
+pydantic
+python-dotenv
+chromadb
+sentence-transformers
