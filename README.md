@@ -167,17 +167,6 @@ Le code de cette boucle est dans `src/agents/nodes.py` → `_run_react_loop()`.
 
 **OUI, le RAG est implémenté et fonctionnel.** Le code est dans `src/tools/rag_pipeline.py`.
 
-**Mais** : la base contient actuellement **6 documents seed** (exemples statiques de 2024-2025) :
-
-- Apple 10-K 2024 (supply chain)
-- Tesla Q4 2024 (earnings)
-- LVMH Credit Assessment 2024
-- JPMorgan Sovereign Risk Q1 2025
-- TotalEnergies ESG 2024
-- Global Semiconductor Supply Chain 2025
-
-**Pour améliorer la qualité** : il faudrait ajouter des vrais documents récents (10-K réels, rapports PDF parsés avec LangChain's `PyPDFLoader`). C'est une prochaine étape.
-
 ### 4. Sources de données — Temps réel vs Statique
 
 | Source | Type | Fraîcheur | Fichier |
