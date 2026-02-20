@@ -43,20 +43,9 @@ st.markdown("""
     }
 
     /* Hide Streamlit branding */
-    #MainMenu, footer, header { visibility: hidden; }
 
-    /* ── Prevent sidebar collapse ────────────────────── */
-    button[data-testid="stSidebarCollapseButton"],
-    button[kind="headerNoPadding"],
-    section[data-testid="stSidebar"] > div > button {
-        display: none !important;
-    }
-    section[data-testid="stSidebar"] {
-        min-width: 320px !important;
-        max-width: 320px !important;
-        background: white !important;
-        border-right: 1px solid #e5e7eb !important;
-    }
+
+
 
     /* ── Typography ──────────────────────────────────── */
     h1, h2, h3 { color: #1a1a2e !important; font-weight: 700 !important; }
@@ -436,9 +425,22 @@ with st.sidebar:
         if st.button("Voir ce rapport", use_container_width=True):
             with open(os.path.join(output_dir, selected_report)) as f:
                 content = f.read()
+            
+            # Extract internal metadata if present
+            sources = None
+            meta_match = re.search(r"<!-- INTERNAL_METADATA_START\n(.*?)\nINTERNAL_METADATA_END -->", content, re.DOTALL)
+            if meta_match:
+                try:
+                    meta_data = json.loads(meta_match.group(1))
+                    sources = meta_data.get("sources")
+                    # Clean the report content for display
+                    content = content[:meta_match.start()].strip()
+                except Exception:
+                    pass
+
             idx = content.find("---\n\n")
             st.session_state.report = content[idx + 5:].strip() if idx >= 0 else content
-            st.session_state.sources = None  # No sources for saved reports
+            st.session_state.sources = sources
             st.session_state.elapsed = 0
     else:
         st.caption("Aucun rapport disponible.")
@@ -671,13 +673,17 @@ def _render_sources(sources: dict):
                     company = html_mod.escape(doc.get("company", ""))
                     doc_type = doc.get("type", "")
                     score = doc.get("score", 0)
+                    content_preview = html_mod.escape(doc.get("content", ""))[:400] + "..."
                     st.markdown(f"""
                     <div class="source-card">
                         <div class="source-title">{source_name}</div>
-                        <div class="source-meta">
+                        <div class="source-meta" style="margin-bottom:0.5rem;">
                             <span class="source-badge badge-rag">RAG</span>
                             <span class="source-badge badge-static">Static</span>
                             &nbsp; {company} · {doc_type} · Score : {score:.2f}
+                        </div>
+                        <div style="font-size:0.75rem; color:#4b5563; line-height:1.5; background:#fff; padding:0.5rem; border-radius:4px; border:1px solid #f3f4f6;">
+                            {content_preview}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)

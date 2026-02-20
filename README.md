@@ -40,7 +40,7 @@ A modular **multi-agent framework** leveraging **LangGraph** and the **ReAct rea
 ## Stack
 
 | Component | Technology |
-|---|---|
+| :--- | :--- |
 | **Orchestration** | LangGraph 1.0 (StateGraph, conditional routing) |
 | **LLM** | Google Gemini 2.5 Flash via `langchain-google-genai` |
 | **Reasoning Pattern** | ReAct (Thought → Action → Observation loop) |
@@ -170,11 +170,11 @@ Le code de cette boucle est dans `src/agents/nodes.py` → `_run_react_loop()`.
 ### 4. Sources de données — Temps réel vs Statique
 
 | Source | Type | Fraîcheur | Fichier |
-|---|---|---|---|
+| :--- | :--- | :--- | :--- |
 | **DuckDuckGo News** | 🟢 Live | Actualités récentes | `src/tools/news_api.py` |
 | **Yahoo Finance** | 🟢 Live | Données marché temps réel | `src/tools/market_data.py` |
 | **DuckDuckGo Web** | 🟢 Live | Recherche web générale | `src/tools/news_api.py` |
-| **ChromaDB RAG** | 🔴 Statique | Documents seed 2024-2025 | `src/tools/rag_pipeline.py` |
+| **ChromaDB RAG** | 🔴 Statique | Documents seed 2025-2026 | `src/tools/rag_pipeline.py` |
 
 Les données **live** (news, prix d'actions) sont fraîches à chaque requête. Les documents **RAG** sont statiques et doivent être mis à jour manuellement.
 
@@ -261,7 +261,7 @@ RiskAnalysis/
 ## Agents
 
 | Agent | Role | Tools |
-|---|---|---|
+| :--- | :--- | :--- |
 | **Supervisor** | Routes tasks, prevents loops, decides completion | Structured LLM output |
 | **Geopolitical Analyst** | Macro & geopolitical risk assessment | News API, Web Search, RAG |
 | **Credit Risk Evaluator** | Quantitative & qualitative credit analysis | Market Data, RAG, Web Search |

@@ -202,6 +202,7 @@ async def run_analysis(
                             "company": doc.get("company", ""),
                             "type": doc.get("document_type", ""),
                             "score": doc.get("relevance_score", 0),
+                            "content": doc.get("content", ""),
                         }
                         if entry["source"] and entry not in sources["rag"]:
                             sources["rag"].append(entry)
@@ -247,6 +248,10 @@ async def main():
         f.write(f"**Query**: {query}\n\n")
         f.write("---\n\n")
         f.write(report)
+        f.write("\n\n---\n")
+        f.write("<!-- INTERNAL_METADATA_START\n")
+        f.write(json.dumps({"sources": sources}, indent=2))
+        f.write("\nINTERNAL_METADATA_END -->\n")
 
     print(f"\n💾 Report saved to: {output_path}")
 

@@ -87,9 +87,12 @@ async def _run_react_loop(
     Thought → Action → Observation → ... → Final Answer
 
     Returns:
-        The final text content from the agent.
+        A tuple of (final_text, messages_to_add).
+        final_text: The final reasoning result.
+        messages_to_add: All AI and Tool messages generated during the loop.
     """
     messages = [SystemMessage(content=system_prompt)] + list(state_messages)
+    loop_messages = []
 
     response = None
     for iteration in range(max_iterations):
@@ -101,6 +104,7 @@ async def _run_react_loop(
             base_delay=15.0,
         )
         messages.append(response)
+        loop_messages.append(response)
 
         # If no tool calls, the agent has finished reasoning
         if not response.tool_calls:
@@ -109,6 +113,7 @@ async def _run_react_loop(
         # Execute tool calls
         tool_messages = await _execute_tool_calls(response.tool_calls)
         messages.extend(tool_messages)
+        loop_messages.extend(tool_messages)
 
     # Extract text from the final response
     final_text = _extract_text(response.content) if response else ""
@@ -124,7 +129,7 @@ async def _run_react_loop(
                     final_text = candidate
                     break
 
-    return final_text if final_text.strip() else "Analysis could not be completed."
+    return final_text if final_text.strip() else "Analysis could not be completed.", loop_messages
 
 
 def _extract_text(content: Any) -> str:
@@ -160,7 +165,7 @@ async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
     llm = _get_llm(temperature=0.2)
     llm_with_tools = llm.bind_tools(GEOPOLITICAL_TOOLS)
 
-    final_content = await _run_react_loop(
+    final_content, new_messages = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=GEOPOLITICAL_ANALYST_PROMPT,
         state_messages=state["messages"],
@@ -169,7 +174,7 @@ async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
 
     print("   ✅ Geopolitical Analyst completed.")
     return {
-        "messages": [AIMessage(content=f"[GEOPOLITICAL ANALYST]\n\n{final_content}", name="geopolitical_analyst")],
+        "messages": [AIMessage(content=f"[GEOPOLITICAL ANALYST]\n\n{final_content}", name="geopolitical_analyst")] + new_messages,
         "risk_signals": [{"agent": "geopolitical_analyst", "analysis": final_content}],
         "iteration_count": state.get("iteration_count", 0) + 1,
     }
@@ -182,7 +187,7 @@ async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
     llm = _get_llm(temperature=0.1)
     llm_with_tools = llm.bind_tools(CREDIT_TOOLS)
 
-    final_content = await _run_react_loop(
+    final_content, new_messages = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=CREDIT_RISK_EVALUATOR_PROMPT,
         state_messages=state["messages"],
@@ -191,7 +196,7 @@ async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
 
     print("   ✅ Credit Risk Evaluator completed.")
     return {
-        "messages": [AIMessage(content=f"[CREDIT RISK EVALUATOR]\n\n{final_content}", name="credit_evaluator")],
+        "messages": [AIMessage(content=f"[CREDIT RISK EVALUATOR]\n\n{final_content}", name="credit_evaluator")] + new_messages,
         "risk_signals": [{"agent": "credit_evaluator", "analysis": final_content}],
         "iteration_count": state.get("iteration_count", 0) + 1,
     }
@@ -209,7 +214,7 @@ async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
     today = datetime.now().strftime("%Y-%m-%d")
     formatted_prompt = MARKET_SYNTHESIZER_PROMPT.format(today=today)
 
-    final_content = await _run_react_loop(
+    final_content, new_messages = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=formatted_prompt,
         state_messages=state["messages"],
@@ -224,7 +229,7 @@ async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
 
     print("   ✅ Market Synthesizer completed.")
     return {
-        "messages": [AIMessage(content=f"[MARKET SYNTHESIZER]\n\n{final_content}", name="market_synthesizer")],
+        "messages": [AIMessage(content=f"[MARKET SYNTHESIZER]\n\n{final_content}", name="market_synthesizer")] + new_messages,
         "risk_signals": [{"agent": "market_synthesizer", "analysis": final_content}],
         "final_report": final_content,
         "iteration_count": state.get("iteration_count", 0) + 1,
