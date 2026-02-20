@@ -7,8 +7,6 @@
 
 A modular **multi-agent framework** leveraging **LangGraph** and the **ReAct reasoning pattern** to orchestrate LLMs for complex, multi-step financial risk evaluations.
 
-> 📖 **Nouveau ici ?** Voir le [glossaire.md](glossaire.md) pour les définitions de tous les termes techniques et financiers.
-
 ---
 
 ## Architecture
