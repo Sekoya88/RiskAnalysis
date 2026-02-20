@@ -13,3 +13,5 @@ pydantic
 python-dotenv
 chromadb
 sentence-transformers
+streamlit
+plotly
