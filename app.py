@@ -36,7 +36,9 @@ st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
     /* ── Global Reset ────────────────────────────────── */
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
+    *:not([class*="material"]):not([class*="icon"]):not(span[data-testid]) {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
 
     .stApp {
         background-color: #fafbfc;
@@ -381,7 +383,7 @@ EXAMPLE_QUERIES = {
         "European banking sector stress, commercial real estate exposure, "
         "interest rate environment, and sovereign debt risks in the Eurozone."
     ),
-    "Requête personnalisée": "",
+    "Custom Query": "",
 }
 
 # ── Session State ─────────────────────────────────────────────────────
@@ -395,18 +397,18 @@ for key, default in defaults.items():
 with st.sidebar:
     st.markdown("### Configuration")
 
-    selected = st.selectbox("Requête type", list(EXAMPLE_QUERIES.keys()))
+    selected = st.selectbox("Query Template", list(EXAMPLE_QUERIES.keys()))
     query = st.text_area(
-        "Requête d'analyse",
+        "Analysis Query",
         value=EXAMPLE_QUERIES[selected],
         height=140,
-        placeholder="Décrivez l'analyse de risque souhaitée...",
+        placeholder="Describe the risk analysis you need...",
     )
 
-    use_redis = st.toggle("Redis (persistance)", value=False)
+    use_redis = st.toggle("Redis (persistence)", value=False)
 
     run_btn = st.button(
-        "Lancer l'Analyse",
+        "Run Analysis",
         type="primary",
         use_container_width=True,
         disabled=st.session_state.running or not query.strip(),
@@ -415,14 +417,14 @@ with st.sidebar:
     st.markdown("---")
 
     # History
-    st.markdown("### Historique")
+    st.markdown("### History")
     output_dir = os.path.join(os.path.dirname(__file__), "output")
     reports = sorted(glob.glob(os.path.join(output_dir, "risk_report_*.md")), reverse=True)
 
     if reports:
         names = [os.path.basename(r) for r in reports]
-        selected_report = st.selectbox("Rapport", names, label_visibility="collapsed")
-        if st.button("Voir ce rapport", use_container_width=True):
+        selected_report = st.selectbox("Report", names, label_visibility="collapsed")
+        if st.button("View Report", use_container_width=True):
             with open(os.path.join(output_dir, selected_report)) as f:
                 content = f.read()
             
@@ -443,7 +445,7 @@ with st.sidebar:
             st.session_state.sources = sources
             st.session_state.elapsed = 0
     else:
-        st.caption("Aucun rapport disponible.")
+        st.caption("No reports available.")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -479,16 +481,16 @@ def _score_class(score: int) -> str:
 
 
 def _score_label(score: int) -> str:
-    if score >= 75: return "Critique"
-    if score >= 50: return "Élevé"
-    if score >= 30: return "Modéré"
-    return "Faible"
+    if score >= 75: return "Critical"
+    if score >= 50: return "High"
+    if score >= 30: return "Moderate"
+    return "Low"
 
 
 def _render_pipeline(geo="waiting", credit="waiting", synth="waiting"):
     """Render the 3-agent pipeline status bar."""
     icons = {"waiting": "⏳", "active": "🔄", "done": "✅"}
-    statuses = {"waiting": "En attente", "active": "En cours...", "done": "Terminé"}
+    statuses = {"waiting": "Waiting", "active": "Running...", "done": "Done"}
 
     def _conn_class(state):
         if state == "done": return "done"
@@ -529,12 +531,12 @@ def _render_metrics(scores: dict):
 
     cols = st.columns(6)
     items = [
-        ("Entité", entity, ""),
-        ("Score Global", f"{overall}/100", _score_class(overall)),
+        ("Entity", entity, ""),
+        ("Overall Score", f"{overall}/100", _score_class(overall)),
         ("Rating", rating, ""),
-        ("Géopolitique", f"{scores.get('geopolitical', '—')}/100", _score_class(scores.get('geopolitical', 0)) if 'geopolitical' in scores else ""),
-        ("Crédit", f"{scores.get('credit', '—')}/100", _score_class(scores.get('credit', 0)) if 'credit' in scores else ""),
-        ("Marché", f"{scores.get('market', '—')}/100", _score_class(scores.get('market', 0)) if 'market' in scores else ""),
+        ("Geopolitical", f"{scores.get('geopolitical', '—')}/100", _score_class(scores.get('geopolitical', 0)) if 'geopolitical' in scores else ""),
+        ("Credit", f"{scores.get('credit', '—')}/100", _score_class(scores.get('credit', 0)) if 'credit' in scores else ""),
+        ("Market", f"{scores.get('market', '—')}/100", _score_class(scores.get('market', 0)) if 'market' in scores else ""),
     ]
     for col, (label, value, color_cls) in zip(cols, items):
         with col:
@@ -555,7 +557,7 @@ def _render_radar(scores: dict):
     try:
         import plotly.graph_objects as go
 
-        labels = ["Géopolitique", "Crédit / Financier", "Marché / Liquidité", "ESG / Transition"]
+        labels = ["Geopolitical", "Credit / Financial", "Market / Liquidity", "ESG / Transition"]
         values = [scores[k] for k in keys]
         values_closed = values + [values[0]]
         labels_closed = labels + [labels[0]]
@@ -605,18 +607,18 @@ def _render_sources(sources: dict):
     if not has_any:
         return
 
-    st.markdown('<div class="section-title">Sources utilisées</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Sources Used</div>', unsafe_allow_html=True)
 
     tabs = []
     tab_keys = []
     if sources.get("news"):
-        tabs.append(f"📰 Actualités ({len(sources['news'])})")
+        tabs.append(f"📰 News ({len(sources['news'])})")
         tab_keys.append("news")
     if sources.get("market"):
-        tabs.append(f"📈 Données de marché ({len(sources['market'])})")
+        tabs.append(f"📈 Market Data ({len(sources['market'])})")
         tab_keys.append("market")
     if sources.get("rag"):
-        tabs.append(f"📄 Documents RAG ({len(sources['rag'])})")
+        tabs.append(f"📄 RAG Documents ({len(sources['rag'])})")
         tab_keys.append("rag")
 
     if not tabs:
@@ -628,7 +630,7 @@ def _render_sources(sources: dict):
         with tab:
             if key == "news":
                 for article in sources["news"]:
-                    title = html_mod.escape(article.get("title", "Sans titre"))
+                    title = html_mod.escape(article.get("title", "Untitled"))
                     url = article.get("url", "")
                     source = html_mod.escape(article.get("source", ""))
                     date = article.get("date", "")
@@ -658,15 +660,15 @@ def _render_sources(sources: dict):
                         <div class="source-meta">
                             <span class="source-badge badge-market">Market Data</span>
                             <span class="source-badge badge-live">Live</span>
-                            &nbsp; Prix : {price} &nbsp;|&nbsp; P/E : {pe}
+                            &nbsp; Price: {price} &nbsp;|&nbsp; P/E: {pe}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
             elif key == "rag":
                 st.caption(
-                    "⚠️ Documents seed statiques (2024-2025). "
-                    "Pour les mettre à jour, ajoutez vos propres fichiers dans le ChromaDB."
+                    "⚠️ Static seed documents (2024-2025). "
+                    "To update, add your own files to the ChromaDB vector store."
                 )
                 for doc in sources["rag"]:
                     source_name = html_mod.escape(doc.get("source", ""))
@@ -680,7 +682,7 @@ def _render_sources(sources: dict):
                         <div class="source-meta" style="margin-bottom:0.5rem;">
                             <span class="source-badge badge-rag">RAG</span>
                             <span class="source-badge badge-static">Static</span>
-                            &nbsp; {company} · {doc_type} · Score : {score:.2f}
+                            &nbsp; {company} · {doc_type} · Score: {score:.2f}
                         </div>
                         <div style="font-size:0.75rem; color:#4b5563; line-height:1.5; background:#fff; padding:0.5rem; border-radius:4px; border:1px solid #f3f4f6;">
                             {content_preview}
@@ -695,7 +697,7 @@ if run_btn and query.strip():
     st.session_state.report = None
     st.session_state.sources = None
 
-    st.markdown('<div class="section-title">Pipeline d\'analyse</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Analysis Pipeline</div>', unsafe_allow_html=True)
     pipeline_placeholder = st.empty()
     progress_bar = st.progress(0)
     time_placeholder = st.empty()
@@ -719,13 +721,13 @@ if run_btn and query.strip():
         progress_bar.progress(100)
         time_placeholder.markdown(
             f"<p style='text-align:center; color:#16a34a; font-weight:600; font-size:0.85rem;'>"
-            f"✅ Analyse terminée en {elapsed:.0f}s</p>",
+            f"✅ Analysis completed in {elapsed:.0f}s</p>",
             unsafe_allow_html=True,
         )
     except Exception as e:
         with pipeline_placeholder.container():
             _render_pipeline("done", "done", "waiting")
-        st.error(f"Erreur : {e}")
+        st.error(f"Error: {e}")
 
     st.session_state.running = False
 
@@ -736,35 +738,35 @@ if st.session_state.report:
     scores = _parse_scores(report)
 
     # Metrics
-    st.markdown('<div class="section-title">Scores de risque</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Risk Scores</div>', unsafe_allow_html=True)
     _render_metrics(scores)
 
     # Radar chart + summary
     if all(k in scores for k in ["geopolitical", "credit", "market", "esg"]):
         col_left, col_right = st.columns([1, 1])
         with col_left:
-            st.markdown('<div class="section-title">Radar de risque</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Risk Radar</div>', unsafe_allow_html=True)
             _render_radar(scores)
         with col_right:
-            st.markdown('<div class="section-title">Synthèse rapide</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Quick Summary</div>', unsafe_allow_html=True)
             overall = scores.get("overall", 0)
             label = _score_label(overall)
             st.markdown(f"""
             <div class="metric-card" style="text-align:left; padding:1.5rem;">
                 <p style="color:#6b7280; font-size:0.8rem; margin-bottom:1rem;">
-                    <strong>Niveau de risque :</strong>
+                    <strong>Risk Level:</strong>
                     <span style="font-size:1.1rem; font-weight:700;" class="{_score_class(overall)}">{label} ({overall}/100)</span>
                 </p>
                 <p style="color:#6b7280; font-size:0.8rem; margin-bottom:0.5rem;">
-                    <strong>Rating interne :</strong> {scores.get('rating', 'N/A')}
+                    <strong>Internal Rating:</strong> {scores.get('rating', 'N/A')}
                 </p>
                 <p style="color:#6b7280; font-size:0.8rem; margin-bottom:0.5rem;">
-                    <strong>Géopolitique :</strong> {scores.get('geopolitical', '—')}/100
-                    &nbsp;|&nbsp; <strong>Crédit :</strong> {scores.get('credit', '—')}/100
+                    <strong>Geopolitical:</strong> {scores.get('geopolitical', '—')}/100
+                    &nbsp;|&nbsp; <strong>Credit:</strong> {scores.get('credit', '—')}/100
                 </p>
                 <p style="color:#6b7280; font-size:0.8rem;">
-                    <strong>Marché :</strong> {scores.get('market', '—')}/100
-                    &nbsp;|&nbsp; <strong>ESG :</strong> {scores.get('esg', '—')}/100
+                    <strong>Market:</strong> {scores.get('market', '—')}/100
+                    &nbsp;|&nbsp; <strong>ESG:</strong> {scores.get('esg', '—')}/100
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -773,12 +775,12 @@ if st.session_state.report:
     _render_sources(st.session_state.sources)
 
     # Full report
-    st.markdown('<div class="section-title">Rapport complet</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Full Report</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="report-block">{report}</div>', unsafe_allow_html=True)
 
     # Download
     st.download_button(
-        "Télécharger le rapport",
+        "Download Report",
         data=report,
         file_name=f"risk_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
         mime="text/markdown",
@@ -790,10 +792,10 @@ if st.session_state.report:
 elif not st.session_state.running:
     st.markdown("""
     <div class="welcome-card">
-        <h2>Bienvenue</h2>
+        <h2>Welcome</h2>
         <p>
-            Ce framework orchestre <strong>3 agents spécialisés</strong> via LangGraph
-            pour produire des rapports de risque intégrés de niveau CRO.
+            This framework orchestrates <strong>3 specialized agents</strong> via LangGraph
+            to produce CRO-level integrated risk assessment reports.
         </p>
         <div class="feature-grid">
             <div class="feature-item">
@@ -804,12 +806,12 @@ elif not st.session_state.running:
             <div class="feature-item">
                 <div class="icon">💳</div>
                 <div class="title">Credit Evaluator</div>
-                <div class="desc">Ratios, Altman Z-Score, dette</div>
+                <div class="desc">Ratios, Altman Z-Score, debt</div>
             </div>
             <div class="feature-item">
                 <div class="icon">📊</div>
                 <div class="title">Market Synthesizer</div>
-                <div class="desc">Score intégré, scénarios, reco.</div>
+                <div class="desc">Integrated score, scenarios, reco.</div>
             </div>
         </div>
     </div>

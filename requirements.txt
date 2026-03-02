@@ -17,4 +17,5 @@ sentence-transformers
 streamlit
 plotly
 pypdf
+rank_bm25
 requests
