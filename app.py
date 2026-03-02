@@ -14,6 +14,7 @@ Launch:  streamlit run app.py
 import asyncio
 import glob
 import html as html_mod
+import json
 import os
 import re
 import time
@@ -35,73 +36,140 @@ st.set_page_config(
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+    /* ═══════════════════════════════════════════════════
+       shadcn-inspired Cream/Pastel Theme
+       Warm sand + soft pastels + clean typography
+       ═══════════════════════════════════════════════════ */
+
     /* ── Global Reset ────────────────────────────────── */
-    *:not([class*="material"]):not([class*="icon"]):not(span[data-testid]) {
+    * {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
-
-    .stApp {
-        background-color: #fafbfc;
+    /* Restore Material Symbols icons everywhere */
+    .material-symbols-rounded,
+    [data-testid="collapsedControl"] *,
+    [data-testid="stSidebarCollapseButton"] *,
+    button[kind="header"] *,
+    [data-testid="stHeader"] span[class] {
+        font-family: 'Material Symbols Rounded' !important;
     }
 
-    /* Hide Streamlit branding */
+    /* ── App Background ─────────────────────────────── */
+    .stApp {
+        background: #FAF9F6 !important;
+    }
 
+    /* ── Sidebar Expand Button (collapsed state) ─────── */
+    button[data-testid="collapsedControl"] {
+        background: #2c2c3a !important;
+        border: none !important;
+        border-radius: 0 10px 10px 0 !important;
+        color: white !important;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1) !important;
+        transition: all 0.2s ease !important;
+    }
+    button[data-testid="collapsedControl"]:hover {
+        background: #3d3d52 !important;
+        box-shadow: 3px 3px 14px rgba(0,0,0,0.15) !important;
+    }
+    button[data-testid="collapsedControl"] * {
+        color: white !important;
+    }
 
+    /* ── Sidebar Collapse Button (expanded state) ────── */
+    [data-testid="stSidebarCollapseButton"] button {
+        background: transparent !important;
+        border: none !important;
+        color: #6b7280 !important;
+        transition: all 0.2s ease !important;
+        opacity: 0.7;
+    }
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        color: #2c2c3a !important;
+        opacity: 1;
+    }
+    [data-testid="stSidebarCollapseButton"] button * {
+        color: inherit !important;
+    }
 
+    /* ── Hide Streamlit Branding ─────────────────────── */
+    #MainMenu, footer { visibility: hidden; }
 
     /* ── Typography ──────────────────────────────────── */
-    h1, h2, h3 { color: #1a1a2e !important; font-weight: 700 !important; }
+    h1, h2, h3 { color: #1c1c28 !important; font-weight: 700 !important; }
 
     /* ── Main Header ─────────────────────────────────── */
     .app-header {
         text-align: center;
-        padding: 2rem 0 1rem;
+        padding: 1.8rem 0 1rem;
     }
     .app-header h1 {
-        font-size: 1.8rem !important;
+        font-size: 1.5rem !important;
         font-weight: 800 !important;
-        color: #1a1a2e !important;
-        letter-spacing: -0.5px;
-        margin-bottom: 0.25rem;
+        color: #1c1c28 !important;
+        letter-spacing: -0.4px;
+        margin-bottom: 0.3rem;
     }
     .app-header p {
-        color: #6b7280;
-        font-size: 0.85rem;
+        color: #a1a1aa;
+        font-size: 0.75rem;
         font-weight: 400;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.5px;
+    }
+
+    /* ── Entity Badge ────────────────────────────────── */
+    .entity-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.3rem 0.85rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+    }
+    .entity-badge.public {
+        background: #EFF6FF;
+        color: #2563eb;
+        border: 1px solid #BFDBFE;
+    }
+    .entity-badge.private {
+        background: #FFFBEB;
+        color: #b45309;
+        border: 1px solid #FDE68A;
     }
 
     /* ── Metric Cards ────────────────────────────────── */
     .metric-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        background: #FFFFFF;
+        border: 1px solid #E8E5E0;
+        border-radius: 14px;
         padding: 1.25rem;
         text-align: center;
-        transition: all 0.2s ease;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
     }
     .metric-card:hover {
-        border-color: #d1d5db;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        transform: translateY(-1px);
+        border-color: #D4D0CA;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        transform: translateY(-2px);
     }
     .metric-label {
-        font-size: 0.7rem;
+        font-size: 0.68rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.8px;
-        color: #9ca3af;
+        color: #a1a1aa;
         margin-bottom: 0.5rem;
     }
     .metric-value {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 700;
-        color: #1a1a2e;
+        color: #1c1c28;
     }
-    .metric-value.score-critical { color: #dc2626; }
+    .metric-value.score-critical { color: #e11d48; }
     .metric-value.score-high { color: #ea580c; }
-    .metric-value.score-moderate { color: #d97706; }
+    .metric-value.score-moderate { color: #ca8a04; }
     .metric-value.score-low { color: #16a34a; }
 
     /* ── Agent Pipeline Steps ────────────────────────── */
@@ -112,36 +180,36 @@ st.markdown("""
     }
     .pipeline-step {
         flex: 1;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 1rem;
+        background: #FFFFFF;
+        border: 1px solid #E8E5E0;
+        border-radius: 12px;
+        padding: 1.1rem;
         text-align: center;
-        transition: all 0.3s ease;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         overflow: hidden;
     }
     .pipeline-step .step-icon { font-size: 1.3rem; margin-bottom: 0.3rem; }
     .pipeline-step .step-label {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         font-weight: 600;
-        color: #6b7280;
+        color: #71717a;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .pipeline-step .step-status {
-        font-size: 0.7rem;
+        font-size: 0.68rem;
         font-weight: 500;
         margin-top: 0.3rem;
     }
 
-    .pipeline-step.waiting { border-color: #e5e7eb; }
-    .pipeline-step.waiting .step-status { color: #9ca3af; }
+    .pipeline-step.waiting { border-color: #E8E5E0; }
+    .pipeline-step.waiting .step-status { color: #a1a1aa; }
 
     .pipeline-step.active {
-        border-color: #3b82f6;
-        background: #eff6ff;
-        box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+        border-color: #93c5fd;
+        background: #F5F8FF;
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
     }
     .pipeline-step.active .step-status { color: #3b82f6; font-weight: 600; }
     .pipeline-step.active::after {
@@ -149,13 +217,13 @@ st.markdown("""
         position: absolute;
         bottom: 0; left: 0;
         width: 100%; height: 3px;
-        background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-        animation: progress-bar 3s ease-in-out infinite;
+        background: linear-gradient(90deg, #60a5fa, #a78bfa);
+        animation: progress-bar 2.5s ease-in-out infinite;
     }
 
     .pipeline-step.done {
-        border-color: #22c55e;
-        background: #f0fdf4;
+        border-color: #86efac;
+        background: #F0FDF4;
     }
     .pipeline-step.done .step-status { color: #16a34a; font-weight: 600; }
 
@@ -170,169 +238,266 @@ st.markdown("""
     .connector {
         display: flex;
         align-items: center;
-        color: #d1d5db;
+        color: #D4D0CA;
         font-size: 1rem;
-        padding: 0 0.1rem;
+        padding: 0 0.15rem;
     }
-    .connector.active { color: #3b82f6; }
-    .connector.done { color: #22c55e; }
+    .connector.active { color: #60a5fa; }
+    .connector.done { color: #86efac; }
 
     /* ── Report Block ────────────────────────────────── */
     .report-block {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        background: #FFFFFF;
+        border: 1px solid #E8E5E0;
+        border-radius: 14px;
         padding: 2rem;
         margin: 1rem 0;
-        font-family: 'Inter', sans-serif !important;
         font-size: 0.88rem;
         line-height: 1.8;
-        color: #374151;
+        color: #3f3f46;
         white-space: pre-wrap;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
     }
 
     /* ── Sources Panel ───────────────────────────────── */
     .source-card {
-        background: #f9fafb;
-        border: 1px solid #f3f4f6;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
+        background: #FAFAF8;
+        border: 1px solid #EFECE7;
+        border-radius: 10px;
+        padding: 0.85rem 1.1rem;
         margin: 0.4rem 0;
-        transition: all 0.15s ease;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .source-card:hover {
-        background: #f3f4f6;
-        border-color: #e5e7eb;
+        background: #F5F3EE;
+        border-color: #E8E5E0;
+        transform: translateX(2px);
     }
     .source-title {
         font-size: 0.82rem;
         font-weight: 600;
-        color: #1a1a2e;
+        color: #1c1c28;
         margin-bottom: 0.15rem;
     }
     .source-title a {
-        color: #3b82f6;
+        color: #2563eb;
         text-decoration: none;
     }
     .source-title a:hover { text-decoration: underline; }
     .source-meta {
         font-size: 0.7rem;
-        color: #9ca3af;
+        color: #a1a1aa;
     }
     .source-badge {
         display: inline-block;
         padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 0.65rem;
+        border-radius: 6px;
+        font-size: 0.62rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    .badge-news { background: #dbeafe; color: #1d4ed8; }
-    .badge-market { background: #dcfce7; color: #166534; }
-    .badge-rag { background: #fef3c7; color: #92400e; }
-    .badge-live { background: #dcfce7; color: #166534; }
-    .badge-static { background: #fee2e2; color: #991b1b; }
+    .badge-news { background: #EFF6FF; color: #2563eb; }
+    .badge-market { background: #F0FDF4; color: #16a34a; }
+    .badge-rag { background: #FFFBEB; color: #b45309; }
+    .badge-live { background: #F0FDF4; color: #16a34a; }
+    .badge-static { background: #FFF1F2; color: #be123c; }
 
     /* ── Welcome Card ────────────────────────────────── */
     .welcome-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 16px;
-        padding: 3rem 2rem;
+        background: #FFFFFF;
+        border: 1px solid #E8E5E0;
+        border-radius: 18px;
+        padding: 3rem 2.5rem;
         text-align: center;
-        max-width: 680px;
-        margin: 2rem auto;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        max-width: 720px;
+        margin: 2.5rem auto;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     }
     .welcome-card h2 {
-        font-size: 1.4rem !important;
-        margin-bottom: 0.8rem;
+        font-size: 1.25rem !important;
+        margin-bottom: 0.5rem;
+        color: #1c1c28 !important;
     }
-    .welcome-card p { color: #6b7280; font-size: 0.9rem; line-height: 1.7; }
+    .welcome-card p {
+        color: #71717a;
+        font-size: 0.84rem;
+        line-height: 1.7;
+    }
 
     .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
+        gap: 0.75rem;
         margin-top: 1.5rem;
     }
     .feature-item {
-        background: #f9fafb;
-        border: 1px solid #f3f4f6;
-        border-radius: 10px;
-        padding: 1.2rem 1rem;
-        transition: all 0.2s ease;
+        background: #FAFAF8;
+        border: 1px solid #EFECE7;
+        border-radius: 14px;
+        padding: 1.3rem 1rem;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .feature-item:hover {
-        border-color: #e5e7eb;
-        background: #f3f4f6;
+        border-color: #BFDBFE;
+        background: #F5F8FF;
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(37,99,235,0.08);
     }
-    .feature-item .icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
+    .feature-item .icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
     .feature-item .title {
         font-size: 0.78rem;
-        font-weight: 600;
-        color: #1a1a2e;
+        font-weight: 700;
+        color: #1c1c28;
     }
     .feature-item .desc {
-        font-size: 0.7rem;
-        color: #9ca3af;
+        font-size: 0.68rem;
+        color: #a1a1aa;
         margin-top: 0.2rem;
     }
 
     /* ── Section Titles ──────────────────────────────── */
     .section-title {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #9ca3af;
+        letter-spacing: 1.2px;
+        color: #a1a1aa;
         margin: 1.5rem 0 0.8rem;
         padding-bottom: 0.5rem;
-        border-bottom: 1px solid #f3f4f6;
+        border-bottom: 1px solid #EFECE7;
     }
 
-    /* ── Sidebar labels & elements ────────────────────── */
+    /* ── Sidebar ─────────────────────────────────────── */
+    section[data-testid="stSidebar"] {
+        background: #FAFAF8 !important;
+        border-right: 1px solid #E8E5E0 !important;
+    }
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3 {
-        color: #1a1a2e !important;
+        color: #1c1c28 !important;
+        font-size: 0.88rem !important;
     }
     section[data-testid="stSidebar"] label {
-        color: #374151 !important;
+        color: #3f3f46 !important;
         font-weight: 500 !important;
-        font-size: 0.8rem !important;
+        font-size: 0.76rem !important;
     }
 
-    /* ── Buttons ──────────────────────────────────────── */
+    /* ── Selectbox & Inputs ──────────────────────────── */
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background: #FFFFFF !important;
+        border-color: #E8E5E0 !important;
+        border-radius: 10px !important;
+        color: #1c1c28 !important;
+    }
+    section[data-testid="stSidebar"] [data-baseweb="select"] span,
+    section[data-testid="stSidebar"] [data-baseweb="select"] div[class] {
+        color: #1c1c28 !important;
+    }
+    section[data-testid="stSidebar"] textarea {
+        background: #FFFFFF !important;
+        border-color: #E8E5E0 !important;
+        border-radius: 10px !important;
+        font-size: 0.82rem !important;
+        color: #1c1c28 !important;
+    }
+    section[data-testid="stSidebar"] textarea::placeholder {
+        color: #a1a1aa !important;
+    }
+    section[data-testid="stSidebar"] textarea:focus {
+        border-color: #93c5fd !important;
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.08) !important;
+    }
+    section[data-testid="stSidebar"] input {
+        color: #1c1c28 !important;
+    }
+    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] * {
+        color: #1c1c28 !important;
+    }
+    /* Dropdown menu items */
+    [data-baseweb="menu"] li {
+        color: #1c1c28 !important;
+    }
+
+    /* ── Primary Button ──────────────────────────────── */
     .stButton > button[kind="primary"] {
-        background-color: #1a1a2e !important;
+        background: #1c1c28 !important;
         color: white !important;
         border: none !important;
-        border-radius: 8px !important;
+        border-radius: 10px !important;
         font-weight: 600 !important;
-        font-size: 0.85rem !important;
-        padding: 0.6rem 1.5rem !important;
-        transition: all 0.2s ease !important;
+        font-size: 0.82rem !important;
+        padding: 0.65rem 1.5rem !important;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #2d2d50 !important;
+        background: #2c2c3a !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(26,26,46,0.2) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
     }
     .stButton > button:not([kind="primary"]) {
-        border-radius: 8px !important;
+        background: #FFFFFF !important;
+        border-radius: 10px !important;
         font-weight: 500 !important;
-        font-size: 0.8rem !important;
-        border-color: #e5e7eb !important;
-        color: #374151 !important;
+        font-size: 0.78rem !important;
+        border: 1px solid #E8E5E0 !important;
+        color: #3f3f46 !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button:not([kind="primary"]):hover {
+        border-color: #93c5fd !important;
+        color: #2563eb !important;
+        background: #F5F8FF !important;
+    }
+
+    /* ── Toggle ──────────────────────────────────────── */
+    [data-testid="stToggle"] label span {
+        font-size: 0.78rem !important;
+        color: #3f3f46 !important;
     }
 
     /* ── Progress bar ────────────────────────────────── */
     .stProgress > div > div {
-        background-color: #22c55e !important;
-        border-radius: 4px;
+        background: linear-gradient(90deg, #86efac, #22c55e) !important;
+        border-radius: 6px;
+    }
+
+    /* ── Tabs ─────────────────────────────────────────── */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0 !important;
+        background: transparent !important;
+        border-bottom: 1px solid #EFECE7 !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 0.78rem !important;
+        font-weight: 500 !important;
+        color: #71717a !important;
+        padding: 0.6rem 1rem !important;
+        border-radius: 8px 8px 0 0 !important;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #2563eb !important;
+        font-weight: 600 !important;
+        border-bottom: 2px solid #2563eb !important;
+    }
+
+    /* ── Download Button ─────────────────────────────── */
+    .stDownloadButton > button {
+        background: #FFFFFF !important;
+        border: 1px solid #E8E5E0 !important;
+        border-radius: 10px !important;
+        color: #3f3f46 !important;
+        font-weight: 500 !important;
+        font-size: 0.78rem !important;
+        transition: all 0.2s ease !important;
+    }
+    .stDownloadButton > button:hover {
+        border-color: #93c5fd !important;
+        color: #2563eb !important;
+        background: #F5F8FF !important;
     }
 
     /* ── Hide default metrics styling ────────────────── */
@@ -341,6 +506,9 @@ st.markdown("""
         border: none;
         padding: 0;
     }
+
+    /* ── Divider ─────────────────────────────────────── */
+    hr { border-color: #EFECE7 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -487,6 +655,74 @@ def _score_label(score: int) -> str:
     return "Low"
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _detect_entity_type(entity_name: str) -> dict:
+    """Detect if an entity is publicly traded using yfinance.
+    
+    Uses smart heuristics to extract potential tickers and cross-validates
+    with the company name to avoid false positives (e.g. "AI" matching C3.ai
+    when the entity is "Anthropic Claude AI").
+    
+    Returns dict with is_public, ticker, exchange, currency, market_cap, sector.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {"is_public": False, "ticker": None, "exchange": None, "currency": None}
+    
+    default = {"is_public": False, "ticker": None, "exchange": None, "currency": None}
+    entity_upper = entity_name.upper()
+    entity_words = set(re.findall(r'[A-Za-z]{3,}', entity_name.lower()))
+    
+    # Build ordered list of ticker candidates
+    candidates = []
+    
+    # 1. Tickers explicitly in parentheses — highest confidence
+    paren_match = re.findall(r'\(([A-Z0-9.\-]{1,10})\)', entity_name)
+    candidates.extend([(t, True) for t in paren_match])  # (ticker, is_explicit)
+    
+    # 2. Entire name if it looks like a ticker (e.g. "GOOGL" or "VOW3.DE")
+    stripped = entity_name.strip()
+    if re.match(r'^[A-Z0-9.\-]{1,10}$', stripped):
+        candidates.append((stripped, True))
+    
+    # 3. Words that look like tickers (min 3 chars to avoid "AI", "US", etc.)
+    parts = re.split(r'[\s\-]+', entity_name)
+    for part in parts:
+        clean = part.strip('().,;')
+        if re.match(r'^[A-Z0-9.]{3,10}$', clean) and clean not in [c for c, _ in candidates]:
+            candidates.append((clean, False))
+    
+    # Try each candidate
+    for ticker_str, is_explicit in candidates:
+        try:
+            ticker = yf.Ticker(ticker_str)
+            info = ticker.info
+            if not info or info.get('regularMarketPrice') is None:
+                continue
+            
+            # Cross-validate: if ticker was inferred (not explicit),
+            # check that the yfinance company name shares words with entity
+            if not is_explicit:
+                yf_name = (info.get('shortName') or info.get('longName') or '').lower()
+                yf_words = set(re.findall(r'[a-z]{3,}', yf_name))
+                if not entity_words & yf_words:
+                    continue  # No common words → likely false positive
+            
+            return {
+                "is_public": True,
+                "ticker": ticker_str,
+                "exchange": info.get('exchange', info.get('fullExchangeName', 'N/A')),
+                "currency": info.get('currency', 'N/A'),
+                "market_cap": info.get('marketCap'),
+                "sector": info.get('sector', 'N/A'),
+            }
+        except Exception:
+            continue
+    
+    return default
+
+
 def _render_pipeline(geo="waiting", credit="waiting", synth="waiting"):
     """Render the 3-agent pipeline status bar."""
     icons = {"waiting": "⏳", "active": "🔄", "done": "✅"}
@@ -521,13 +757,33 @@ def _render_pipeline(geo="waiting", credit="waiting", synth="waiting"):
 
 
 def _render_metrics(scores: dict):
-    """Render the score metric cards."""
+    """Render the score metric cards with entity type detection."""
     overall = scores.get("overall")
     if overall is None:
         return
 
     entity = scores.get("entity", "N/A")
     rating = scores.get("rating", "N/A")
+
+    # Detect if entity is publicly traded
+    entity_info = _detect_entity_type(entity)
+
+    # Entity type badge
+    if entity_info["is_public"]:
+        ticker = entity_info['ticker']
+        exchange = entity_info.get('exchange', '')
+        sector = entity_info.get('sector', '')
+        badge_html = (
+            f'<span class="entity-badge public">'
+            f'📈 Publicly Traded — {ticker}'
+            f'{" · " + exchange if exchange and exchange != "N/A" else ""}'
+            f'</span>'
+        )
+    else:
+        badge_html = '<span class="entity-badge private">🏢 Private Entity</span>'
+
+    # Show entity badge above metrics
+    st.markdown(f'<div style="text-align:center; margin-bottom:0.8rem;">{badge_html}</div>', unsafe_allow_html=True)
 
     cols = st.columns(6)
     items = [
