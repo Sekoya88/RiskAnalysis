@@ -35,11 +35,11 @@ def search_geopolitical_news(
         source URL, and publication date.
     """
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         with DDGS() as ddgs:
             results = list(ddgs.news(
-                keywords=query,
+                query,
                 region=region,
                 max_results=min(max_results, 15),
             ))
@@ -58,7 +58,7 @@ def search_geopolitical_news(
             "query": query,
             "num_results": len(articles),
             "articles": articles,
-        }, indent=2, default=str)
+        }, separators=(",", ":"), default=str)
 
     except Exception as e:
         return json.dumps({"error": f"News search failed: {str(e)}"})
@@ -79,11 +79,11 @@ def search_web_general(
         JSON string with search results.
     """
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         with DDGS() as ddgs:
             results = list(ddgs.text(
-                keywords=query,
+                query,
                 max_results=min(max_results, 10),
             ))
 
@@ -99,7 +99,7 @@ def search_web_general(
             "query": query,
             "num_results": len(items),
             "results": items,
-        }, indent=2, default=str)
+        }, separators=(",", ":"), default=str)
 
     except Exception as e:
         return json.dumps({"error": f"Web search failed: {str(e)}"})

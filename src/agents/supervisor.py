@@ -8,8 +8,6 @@ Also supports self-correction by re-routing to agents if needed.
 Includes retry logic for API rate limits.
 """
 
-from __future__ import annotations
-
 import json
 import os
 from typing import Any
@@ -18,7 +16,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from src.agents.prompts import SUPERVISOR_PROMPT
+from src.agents.prompts import SUPERVISOR_EVALUATION_PROMPT
 from src.state.schema import AgentState
 from src.utils import retry_with_backoff
 
@@ -70,8 +68,11 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
             print(f"   🧠 Supervisor: routing to {agent} (pipeline order)")
             return {"next_agent": agent}
 
-    # ── All agents have reported → use LLM to decide if done ──────
-    # The LLM can decide to re-route for self-correction or FINISH
+    # ── All agents have reported → evaluate for self-correction ─────
+    # Instead of passing the 50K+ raw execution message history, we pass
+    # ONLY the clean, synthesized reports from `risk_signals`. This saves
+    # massive amounts of tokens while preserving deep critical thinking.
+    
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
@@ -79,28 +80,35 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
         max_output_tokens=512,
     )
 
-    system_msg = f"""{SUPERVISOR_PROMPT}
-
-Current iteration: {iteration_count}/10
-Agents that have reported: {agents_reported}
-All required agents have completed their analysis.
-
-Should you re-route to any agent for deeper analysis, or FINISH?
-Choose from: {AGENT_OPTIONS}
-Respond with a JSON object: {{"next": "<agent_name>", "reasoning": "<why>"}}
-"""
-
-    messages = [SystemMessage(content=system_msg)] + list(state["messages"])
-
-    print("   🧠 Supervisor evaluating completion...")
-    response = await retry_with_backoff(
-        llm.ainvoke,
-        messages,
-        max_retries=5,
-        base_delay=15.0,
+    # Compile the reports for the supervisor to read
+    reports_context = "\n\n".join(
+        f"--- REPORT FROM: {signal.get('agent', 'UNKNOWN')} ---\n{signal.get('analysis', '')}"
+        for signal in state.get("risk_signals", [])
     )
 
-    content = _extract_text(response.content).strip()
+    system_msg = f"""{SUPERVISOR_EVALUATION_PROMPT}
+
+Current iteration: {iteration_count}/10
+Here are the final synthesized reports from your team:
+
+{reports_context}
+"""
+
+    messages = [SystemMessage(content=system_msg)]
+
+    print("   🧠 Supervisor evaluating completion based on final reports...")
+    
+    try:
+        response = await retry_with_backoff(
+            llm.ainvoke,
+            messages,
+            max_retries=3,
+            base_delay=5.0,
+        )
+        content = _extract_text(response.content).strip()
+    except Exception as e:
+        print(f"   ⚠️ Supervisor evaluation failed ({e}). Defaulting to FINISH.")
+        return {"next_agent": "FINISH"}
 
     # Parse the routing decision
     next_agent = "FINISH"
@@ -111,6 +119,7 @@ Respond with a JSON object: {{"next": "<agent_name>", "reasoning": "<why>"}}
             candidate = decision.get("next", "FINISH")
             if candidate in AGENT_OPTIONS:
                 next_agent = candidate
+            print(f"   ➡️  Supervisor reasoning: {decision.get('reasoning', 'None')}")
     except (json.JSONDecodeError, ValueError):
         for option in AGENT_OPTIONS:
             if option.lower() in content.lower():
