@@ -21,6 +21,10 @@ import time
 from datetime import datetime
 
 import streamlit as st
+import warnings
+
+# Suppress annoying google.genai deprecation warning (AiohttpClientSession)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.genai")
 
 from src.main import run_analysis
 
@@ -247,16 +251,35 @@ st.markdown("""
 
     /* ── Report Block ────────────────────────────────── */
     .report-block {
-        background: #FFFFFF;
-        border: 1px solid #E8E5E0;
-        border-radius: 14px;
-        padding: 2rem;
-        margin: 1rem 0;
-        font-size: 0.88rem;
-        line-height: 1.8;
+        background: linear-gradient(145deg, #ffffff, #fdfcfa);
+        border: 1px solid #e2dfd9;
+        border-radius: 16px;
+        padding: 3rem 4rem;
+        margin: 1.5rem 0;
+        font-size: 1rem;
+        line-height: 1.85;
+        color: #27272a;
+        text-align: justify;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .report-block p, .report-block li {
+        text-align: justify;
+    }
+    .report-block h2 {
+        color: #18181b;
+        font-weight: 700;
+        font-size: 1.5rem;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #f4f4f5;
+        padding-bottom: 0.5rem;
+    }
+    .report-block h3 {
+        font-weight: 600;
+        font-size: 1.2rem;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
         color: #3f3f46;
-        white-space: pre-wrap;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
     }
 
     /* ── Sources Panel ───────────────────────────────── */
@@ -617,6 +640,26 @@ with st.sidebar:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+def _format_report_html(report_text: str) -> str:
+    """Format the raw Markdown report for better visual layout."""
+    # 1. Main Header
+    report_text = re.sub(
+        r'═{10,}\s*\n\s*(.+?)\n\s*═{10,}',
+        r'\n\n<div style="text-align:center; margin: 2rem 0; padding: 1.5rem 0; border-top: 2px solid #e2dfd9; border-bottom: 2px solid #e2dfd9; font-weight: 800; font-size: 1.4rem; letter-spacing: 1.5px; color: #18181b; text-transform: uppercase; background: linear-gradient(90deg, transparent, rgba(244,244,245,0.4), transparent);">\1</div>\n\n',
+        report_text
+    )
+    # 2. Section Headers
+    report_text = re.sub(
+        r'─{10,}\s*(.+?)\s*─{10,}',
+        r'\n\n<div style="display:flex; justify-content:center; align-items:center; margin: 2.5rem 0 1.5rem 0;">'
+        r'<span style="height:1px; background:linear-gradient(90deg, transparent, #d4d4d8); flex:1; margin-right:1.5rem;"></span>'
+        r'<span style="color: #52525b; font-weight: 700; font-size: 0.85rem; letter-spacing: 3px; text-transform: uppercase;">\1</span>'
+        r'<span style="height:1px; background:linear-gradient(90deg, #d4d4d8, transparent); flex:1; margin-left:1.5rem;"></span></div>\n\n',
+        report_text
+    )
+    return report_text
+
+
 def _parse_scores(report: str) -> dict:
     """Parse risk scores from report text."""
     scores = {}
@@ -659,9 +702,8 @@ def _score_label(score: int) -> str:
 def _detect_entity_type(entity_name: str) -> dict:
     """Detect if an entity is publicly traded using yfinance.
     
-    Uses smart heuristics to extract potential tickers and cross-validates
-    with the company name to avoid false positives (e.g. "AI" matching C3.ai
-    when the entity is "Anthropic Claude AI").
+    Uses progressive yf.Search with noise stripping to handle
+    entity names like 'Thales Group (France)' → HO.PA.
     
     Returns dict with is_public, ticker, exchange, currency, market_cap, sector.
     """
@@ -671,27 +713,51 @@ def _detect_entity_type(entity_name: str) -> dict:
         return {"is_public": False, "ticker": None, "exchange": None, "currency": None}
     
     default = {"is_public": False, "ticker": None, "exchange": None, "currency": None}
-    entity_upper = entity_name.upper()
     entity_words = set(re.findall(r'[A-Za-z]{3,}', entity_name.lower()))
     
-    # Build ordered list of ticker candidates
     candidates = []
     
-    # 1. Tickers explicitly in parentheses — highest confidence
-    paren_match = re.findall(r'\(([A-Z0-9.\-]{1,10})\)', entity_name)
-    candidates.extend([(t, True) for t in paren_match])  # (ticker, is_explicit)
+    # 1. Tickers explicitly in parentheses if they look like tickers (max 5 chars)
+    paren_match = re.findall(r'\(([A-Z0-9.\-]{1,5})\)', entity_name)
+    candidates.extend([(t, True) for t in paren_match])
     
-    # 2. Entire name if it looks like a ticker (e.g. "GOOGL" or "VOW3.DE")
+    # 2. Entire name if it looks like a pure ticker (max 5 chars)
     stripped = entity_name.strip()
-    if re.match(r'^[A-Z0-9.\-]{1,10}$', stripped):
+    if re.match(r'^[A-Z0-9.\-]{1,5}$', stripped):
         candidates.append((stripped, True))
     
-    # 3. Words that look like tickers (min 3 chars to avoid "AI", "US", etc.)
+    # 3. Words that look like tickers (3-5 chars uppercase)
     parts = re.split(r'[\s\-]+', entity_name)
     for part in parts:
         clean = part.strip('().,;')
-        if re.match(r'^[A-Z0-9.]{3,10}$', clean) and clean not in [c for c, _ in candidates]:
+        if re.match(r'^[A-Z0-9.]{3,5}$', clean) and clean not in [c for c, _ in candidates]:
             candidates.append((clean, False))
+    
+    # 4. Progressive yf.Search — strip noise and try shorter variants
+    # "Thales Group (France)" → ["THALES GROUP", "THALES"]
+    clean_name = re.sub(r'\([^)]*\)', '', entity_name).strip()  # Remove parenthesized content
+    clean_name = re.sub(r'\s+', ' ', clean_name)  # Normalize whitespace
+    words = clean_name.split()
+    
+    search_variants = []
+    # Try full cleaned name, then progressively drop last word
+    for i in range(len(words), 0, -1):
+        variant = " ".join(words[:i]).upper()
+        if variant and variant not in search_variants:
+            search_variants.append(variant)
+    
+    for variant in search_variants:
+        try:
+            search_obj = yf.Search(variant, max_results=5)
+            for q in (search_obj.quotes or []):
+                symbol = q.get("symbol", "")
+                quote_type = q.get("quoteType", "")
+                if symbol and quote_type == "EQUITY" and symbol not in [c for c, _ in candidates]:
+                    candidates.append((symbol, True))
+            if any(s not in [c for c, _ in candidates[:len(paren_match) + 2]] for s in [q.get("symbol") for q in (search_obj.quotes or []) if q.get("quoteType") == "EQUITY"]):
+                break  # Found equity results, stop searching
+        except Exception:
+            continue
     
     # Try each candidate
     for ticker_str, is_explicit in candidates:
@@ -701,13 +767,12 @@ def _detect_entity_type(entity_name: str) -> dict:
             if not info or info.get('regularMarketPrice') is None:
                 continue
             
-            # Cross-validate: if ticker was inferred (not explicit),
-            # check that the yfinance company name shares words with entity
+            # Cross-validate non-explicit tickers
             if not is_explicit:
                 yf_name = (info.get('shortName') or info.get('longName') or '').lower()
                 yf_words = set(re.findall(r'[a-z]{3,}', yf_name))
                 if not entity_words & yf_words:
-                    continue  # No common words → likely false positive
+                    continue
             
             return {
                 "is_public": True,
@@ -923,7 +988,7 @@ def _render_sources(sources: dict):
 
             elif key == "rag":
                 st.caption(
-                    "⚠️ Static seed documents (2024-2025). "
+                    "⚠️ Static seed documents (2026). "
                     "To update, add your own files to the ChromaDB vector store."
                 )
                 for doc in sources["rag"]:
@@ -952,11 +1017,16 @@ if run_btn and query.strip():
     st.session_state.running = True
     st.session_state.report = None
     st.session_state.sources = None
+    st.session_state.token_usage = None
 
     st.markdown('<div class="section-title">Analysis Pipeline</div>', unsafe_allow_html=True)
     pipeline_placeholder = st.empty()
     progress_bar = st.progress(0)
     time_placeholder = st.empty()
+
+    # Live log container
+    st.markdown('<div class="section-title">Live Activity</div>', unsafe_allow_html=True)
+    log_container = st.empty()
 
     with pipeline_placeholder.container():
         _render_pipeline("active", "waiting", "waiting")
@@ -965,11 +1035,100 @@ if run_btn and query.strip():
 
     start = time.time()
 
-    try:
-        report, sources = asyncio.run(run_analysis(query=query, use_redis=use_redis))
-        elapsed = time.time() - start
-        st.session_state.report = report
-        st.session_state.sources = sources
+    # Set up shared log queue + run analysis in thread
+    import queue
+    import threading
+    from src.agents.nodes import set_log_queue
+
+    log_queue = queue.Queue(maxsize=200)
+    set_log_queue(log_queue)
+    log_lines = []
+
+    result_holder = {"report": None, "sources": None, "token_usage": None, "error": None}
+
+    def _run_in_thread():
+        import asyncio as _asyncio
+        try:
+            loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(loop)
+            r, s, t = loop.run_until_complete(run_analysis(query=query, use_redis=use_redis))
+            result_holder["report"] = r
+            result_holder["sources"] = s
+            result_holder["token_usage"] = t
+        except Exception as e:
+            result_holder["error"] = str(e)
+        finally:
+            log_queue.put("__DONE__")
+
+    analysis_thread = threading.Thread(target=_run_in_thread, daemon=True)
+    analysis_thread.start()
+
+    # Poll log queue and update UI in real-time
+    geo_done = credit_done = synth_done = False
+    while True:
+        try:
+            msg = log_queue.get(timeout=0.3)
+        except queue.Empty:
+            # Update elapsed time
+            elapsed = time.time() - start
+            time_placeholder.markdown(
+                f"<p style='text-align:center; color:#a1a1aa; font-size:0.75rem;'>"
+                f"⏱ {elapsed:.0f}s elapsed</p>",
+                unsafe_allow_html=True,
+            )
+            continue
+
+        if msg == "__DONE__":
+            break
+
+        log_lines.append(msg)
+
+        # Update pipeline visualization based on log messages
+        if "Geopolitical done" in msg:
+            geo_done = True
+        if "Credit Evaluator done" in msg:
+            credit_done = True
+        if "Synthesizer done" in msg:
+            synth_done = True
+
+        geo_status = "done" if geo_done else "active"
+        credit_status = "done" if credit_done else ("active" if geo_done else "waiting")
+        synth_status = "done" if synth_done else ("active" if credit_done else "waiting")
+
+        with pipeline_placeholder.container():
+            _render_pipeline(geo_status, credit_status, synth_status)
+
+        # Progress estimation
+        done_count = sum([geo_done, credit_done, synth_done])
+        progress_bar.progress(10 + done_count * 28)
+
+        # Render live log
+        log_html = "\n".join(
+            f"<div style='padding:0.2rem 0;font-size:0.72rem;color:#3f3f46;border-bottom:1px solid #EFECE7;'>"
+            f"<span style='color:#a1a1aa;font-size:0.65rem;'>{i+1:02d}</span> {line}</div>"
+            for i, line in enumerate(log_lines[-12:])  # Show last 12 lines
+        )
+        log_container.markdown(
+            f'<div style="background:#FFFFFF;border:1px solid #E8E5E0;border-radius:12px;'
+            f'padding:0.8rem 1rem;max-height:220px;overflow-y:auto;'
+            f'box-shadow:0 1px 2px rgba(0,0,0,0.03);">{log_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Clean up
+    set_log_queue(None)
+    analysis_thread.join(timeout=5)
+
+    elapsed = time.time() - start
+
+    if result_holder["error"]:
+        with pipeline_placeholder.container():
+            _render_pipeline("done", "done", "waiting")
+        st.error(f"Error: {result_holder['error']}")
+    else:
+        st.session_state.report = result_holder["report"]
+        st.session_state.sources = result_holder["sources"]
+        st.session_state.token_usage = result_holder["token_usage"]
         st.session_state.elapsed = elapsed
 
         with pipeline_placeholder.container():
@@ -980,10 +1139,6 @@ if run_btn and query.strip():
             f"✅ Analysis completed in {elapsed:.0f}s</p>",
             unsafe_allow_html=True,
         )
-    except Exception as e:
-        with pipeline_placeholder.container():
-            _render_pipeline("done", "done", "waiting")
-        st.error(f"Error: {e}")
 
     st.session_state.running = False
 
@@ -996,6 +1151,60 @@ if st.session_state.report:
     # Metrics
     st.markdown('<div class="section-title">Risk Scores</div>', unsafe_allow_html=True)
     _render_metrics(scores)
+
+    # Token usage & cost
+    token_usage = st.session_state.get("token_usage", [])
+    if token_usage:
+        total_in = sum(t.get("input", 0) for t in token_usage)
+        total_out = sum(t.get("output", 0) for t in token_usage)
+        total_cached = sum(t.get("cached", 0) for t in token_usage)
+        cost_in = total_in * 0.30 / 1_000_000
+        cost_out = total_out * 2.50 / 1_000_000
+        total_cost = cost_in + cost_out
+        saved = total_cached * 0.27 / 1_000_000
+
+        saved_html = ""
+        if saved > 0:
+            saved_html = f' <span style="color:#16a34a;font-size:0.7rem;">(saved ${saved:.4f})</span>'
+
+        rows_html = ""
+        for t in token_usage:
+            agent_name = t.get("agent", "").replace("_", " ").title()
+            rows_html += (
+                f'<tr>'
+                f'<td style="font-weight:500;color:#1c1c28;padding:0.35rem 0.5rem;">{agent_name}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-variant-numeric:tabular-nums;">{t.get("input", 0):,}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-variant-numeric:tabular-nums;">{t.get("output", 0):,}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;color:#2563eb;font-variant-numeric:tabular-nums;">{t.get("cached", 0):,}</td>'
+                f'</tr>'
+            )
+
+        token_html = (
+            '<div style="background:#FFFFFF;border:1px solid #E8E5E0;border-radius:14px;'
+            'padding:1.2rem 1.5rem;margin:1rem 0;box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">'
+            '<span style="font-size:0.75rem;font-weight:700;text-transform:uppercase;'
+            'letter-spacing:1.2px;color:#a1a1aa;">Token Usage</span>'
+            f'<span style="font-size:0.85rem;font-weight:700;color:#1c1c28;">'
+            f'\U0001f4b0 ${total_cost:.4f}{saved_html}</span>'
+            '</div>'
+            '<table style="width:100%;font-size:0.75rem;color:#3f3f46;border-collapse:collapse;table-layout:fixed;">'
+            '<colgroup><col style="width:46%;"><col style="width:18%;"><col style="width:18%;"><col style="width:18%;"></colgroup>'
+            '<thead><tr style="border-bottom:1px solid #EFECE7;">'
+            '<th style="text-align:left;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Agent</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Input</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Output</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Cached</th>'
+            '</tr></thead>'
+            f'<tbody>{rows_html}'
+            '<tr style="border-top:1px solid #EFECE7;font-weight:700;">'
+            f'<td style="padding-top:0.4rem;padding-left:0.5rem;color:#1c1c28;">Total</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-variant-numeric:tabular-nums;">{total_in:,}</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-variant-numeric:tabular-nums;">{total_out:,}</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;color:#2563eb;font-variant-numeric:tabular-nums;">{total_cached:,}</td>'
+            '</tr></tbody></table></div>'
+        )
+        st.markdown(token_html, unsafe_allow_html=True)
 
     # Radar chart + summary
     if all(k in scores for k in ["geopolitical", "credit", "market", "esg"]):
@@ -1031,8 +1240,9 @@ if st.session_state.report:
     _render_sources(st.session_state.sources)
 
     # Full report
+    formatted_report = _format_report_html(report)
     st.markdown('<div class="section-title">Full Report</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="report-block">{report}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="report-block">\n\n{formatted_report}\n\n</div>', unsafe_allow_html=True)
 
     # Download
     st.download_button(

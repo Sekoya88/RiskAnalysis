@@ -26,6 +26,7 @@ class AgentState(TypedDict):
         risk_signals: Intermediate risk signals collected by individual agents.
         final_report: The synthesized final risk assessment report.
         iteration_count: Guard counter to prevent infinite loops.
+        token_usage: Accumulated token counts per agent call.
     """
 
     # ── Core message stream (auto-accumulating) ──────────────────────
@@ -43,3 +44,6 @@ class AgentState(TypedDict):
 
     # ── Safety guard ─────────────────────────────────────────────────
     iteration_count: int
+
+    # ── Token tracking ───────────────────────────────────────────────
+    token_usage: Annotated[list[dict], operator.add]

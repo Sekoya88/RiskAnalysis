@@ -82,6 +82,7 @@ async def run_analysis(
         "risk_signals": [],
         "final_report": "",
         "iteration_count": 0,
+        "token_usage": [],
     }
 
     config = {"configurable": {"thread_id": thread_id}}
@@ -207,10 +208,14 @@ async def run_analysis(
                         if entry["source"] and entry not in sources["rag"]:
                             sources["rag"].append(entry)
 
+            # ── Extract token usage ───────────────────────────────────
+            token_usage = snapshot.values.get("token_usage", [])
+
     except Exception as e:
         final_report = final_report or f"Report extraction failed: {e}"
+        token_usage = []
 
-    return final_report, sources
+    return final_report, sources, token_usage
 
 
 async def main():
@@ -229,13 +234,28 @@ async def main():
 
     print("🚀 Initializing agents...\n")
 
-    report, sources = await run_analysis(query=query, use_redis=use_redis)
+    report, sources, token_usage = await run_analysis(query=query, use_redis=use_redis)
 
     print("\n" + "═" * 70)
     print("  📊 FINAL INTEGRATED RISK REPORT")
     print("═" * 70)
     print(report)
     print("\n" + "═" * 70)
+
+    # Print token usage summary
+    if token_usage:
+        total_in = sum(t.get("input", 0) for t in token_usage)
+        total_out = sum(t.get("output", 0) for t in token_usage)
+        total_cached = sum(t.get("cached", 0) for t in token_usage)
+        cost_in = total_in * 0.30 / 1_000_000
+        cost_out = total_out * 2.50 / 1_000_000
+        saved = total_cached * 0.27 / 1_000_000  # 90% of input price
+        print(f"\n  📊 TOKEN USAGE")
+        for t in token_usage:
+            print(f"     {t['agent']:25s} | {t['input']:,} in | {t['output']:,} out | {t['cached']:,} cached")
+        print(f"     {'TOTAL':25s} | {total_in:,} in | {total_out:,} out | {total_cached:,} cached")
+        print(f"  💰 ESTIMATED COST: ${cost_in + cost_out:.4f} (saved ${saved:.4f} via caching)")
+        print("═" * 70)
 
     # Save report to file
     output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")

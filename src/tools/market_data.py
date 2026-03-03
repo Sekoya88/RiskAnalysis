@@ -89,7 +89,7 @@ def get_market_data(
         hist = stock.history(period=period)
         if not hist.empty:
             price_records = []
-            for date, row in hist.tail(10).iterrows():
+            for date, row in hist.tail(5).iterrows():
                 price_records.append({
                     "date": date.strftime("%Y-%m-%d"),
                     "close": round(row["Close"], 2),
@@ -101,7 +101,7 @@ def get_market_data(
                 2,
             )
 
-        return json.dumps(snapshot, indent=2, default=str)
+        return json.dumps(snapshot, separators=(",", ":"), default=str)
 
     except Exception as e:
         return json.dumps({"error": f"Failed to fetch data for {ticker}: {str(e)}"})
