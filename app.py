@@ -38,17 +38,21 @@ st.set_page_config(
 
 # ── Inject Google Font + Professional CSS ─────────────────────────────
 st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
     /* ═══════════════════════════════════════════════════
-       shadcn-inspired Cream/Pastel Theme
-       Warm sand + soft pastels + clean typography
+       MONO THEME (21st.dev inspired)
+       High contrast black & white + clean typography
        ═══════════════════════════════════════════════════ */
 
     /* ── Global Reset ────────────────────────────────── */
     * {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
+    code, .mono {
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
     /* Restore Material Symbols icons everywhere */
     .material-symbols-rounded,
     [data-testid="collapsedControl"] *,
@@ -60,21 +64,21 @@ st.markdown("""
 
     /* ── App Background ─────────────────────────────── */
     .stApp {
-        background: #FAF9F6 !important;
+        background: #ffffff !important;
+        color: #000000 !important;
     }
 
     /* ── Sidebar Expand Button (collapsed state) ─────── */
     button[data-testid="collapsedControl"] {
-        background: #2c2c3a !important;
+        background: #000000 !important;
         border: none !important;
-        border-radius: 0 10px 10px 0 !important;
+        border-radius: 0 4px 4px 0 !important;
         color: white !important;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1) !important;
+        box-shadow: none !important;
         transition: all 0.2s ease !important;
     }
     button[data-testid="collapsedControl"]:hover {
-        background: #3d3d52 !important;
-        box-shadow: 3px 3px 14px rgba(0,0,0,0.15) !important;
+        background: #333333 !important;
     }
     button[data-testid="collapsedControl"] * {
         color: white !important;
@@ -84,12 +88,12 @@ st.markdown("""
     [data-testid="stSidebarCollapseButton"] button {
         background: transparent !important;
         border: none !important;
-        color: #6b7280 !important;
+        color: #666666 !important;
         transition: all 0.2s ease !important;
         opacity: 0.7;
     }
     [data-testid="stSidebarCollapseButton"] button:hover {
-        color: #2c2c3a !important;
+        color: #000000 !important;
         opacity: 1;
     }
     [data-testid="stSidebarCollapseButton"] button * {
@@ -100,438 +104,443 @@ st.markdown("""
     #MainMenu, footer { visibility: hidden; }
 
     /* ── Typography ──────────────────────────────────── */
-    h1, h2, h3 { color: #1c1c28 !important; font-weight: 700 !important; }
+    h1, h2, h3 { color: #000000 !important; font-weight: 700 !important; letter-spacing: -0.02em !important; }
 
     /* ── Main Header ─────────────────────────────────── */
     .app-header {
-        text-align: center;
-        padding: 1.8rem 0 1rem;
+        text-align: left;
+        padding: 2rem 0 2rem;
+        border-bottom: 1px solid #eaeaea;
+        margin-bottom: 2rem;
     }
     .app-header h1 {
-        font-size: 1.5rem !important;
+        font-size: 2rem !important;
         font-weight: 800 !important;
-        color: #1c1c28 !important;
-        letter-spacing: -0.4px;
-        margin-bottom: 0.3rem;
+        color: #000000 !important;
+        letter-spacing: -0.04em;
+        margin-bottom: 0.5rem;
     }
     .app-header p {
-        color: #a1a1aa;
-        font-size: 0.75rem;
+        color: #666;
+        font-size: 0.9rem;
+        font-family: 'JetBrains Mono', monospace !important;
         font-weight: 400;
-        letter-spacing: 0.5px;
+        opacity: 0.8;
     }
 
     /* ── Entity Badge ────────────────────────────────── */
     .entity-badge {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
-        padding: 0.3rem 0.85rem;
-        border-radius: 20px;
+        gap: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        border: 1px solid #000;
+        border-radius: 4px;
         font-size: 0.7rem;
         font-weight: 600;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        font-family: 'JetBrains Mono', monospace !important;
     }
     .entity-badge.public {
-        background: #EFF6FF;
-        color: #2563eb;
-        border: 1px solid #BFDBFE;
+        background: #ffffff;
+        color: #000000;
+        border-color: #000000;
     }
     .entity-badge.private {
-        background: #FFFBEB;
-        color: #b45309;
-        border: 1px solid #FDE68A;
+        background: #000000;
+        color: #ffffff;
+        border-color: #000000;
     }
 
-    /* ── Metric Cards ────────────────────────────────── */
+    /* ── Metric Cards (Mono) ─────────────────────────── */
     .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E8E5E0;
-        border-radius: 14px;
-        padding: 1.25rem;
-        text-align: center;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 6px;
+        padding: 1.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .metric-card:hover {
-        border-color: #D4D0CA;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        transform: translateY(-2px);
+        border-color: #000000;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.06);
     }
     .metric-label {
-        font-size: 0.68rem;
-        font-weight: 600;
+        font-size: 0.7rem;
+        font-weight: 500;
         text-transform: uppercase;
-        letter-spacing: 0.8px;
-        color: #a1a1aa;
-        margin-bottom: 0.5rem;
+        letter-spacing: 0.05em;
+        color: #666;
+        margin-bottom: 0.75rem;
+        font-family: 'JetBrains Mono', monospace !important;
     }
     .metric-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #1c1c28;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #000000;
+        letter-spacing: -0.04em;
     }
-    .metric-value.score-critical { color: #e11d48; }
-    .metric-value.score-high { color: #ea580c; }
-    .metric-value.score-moderate { color: #ca8a04; }
-    .metric-value.score-low { color: #16a34a; }
+    .metric-value.score-critical { color: #000000; text-decoration: underline; text-decoration-color: #ef4444; }
+    .metric-value.score-high { color: #000000; text-decoration: underline; text-decoration-color: #f97316; }
+    .metric-value.score-moderate { color: #000000; text-decoration: underline; text-decoration-color: #eab308; }
+    .metric-value.score-low { color: #000000; text-decoration: underline; text-decoration-color: #22c55e; }
 
-    /* ── Agent Pipeline Steps ────────────────────────── */
+    /* ── Agent Pipeline Steps (Mono) ─────────────────── */
     .pipeline-container {
         display: flex;
-        gap: 0.5rem;
-        margin: 1rem 0;
+        gap: 1rem;
+        margin: 2rem 0;
     }
     .pipeline-step {
         flex: 1;
-        background: #FFFFFF;
-        border: 1px solid #E8E5E0;
-        border-radius: 12px;
-        padding: 1.1rem;
-        text-align: center;
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 6px;
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
     }
-    .pipeline-step .step-icon { font-size: 1.3rem; margin-bottom: 0.3rem; }
+    .pipeline-step .step-icon {
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.4;
+        filter: grayscale(100%);
+    }
     .pipeline-step .step-label {
-        font-size: 0.7rem;
+        font-size: 0.75rem;
         font-weight: 600;
-        color: #71717a;
+        color: #000000;
+        font-family: 'JetBrains Mono', monospace !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
     .pipeline-step .step-status {
-        font-size: 0.68rem;
-        font-weight: 500;
-        margin-top: 0.3rem;
+        font-size: 0.7rem;
+        color: #666;
+        margin-top: 0.25rem;
+        font-family: 'JetBrains Mono', monospace !important;
     }
-
-    .pipeline-step.waiting { border-color: #E8E5E0; }
-    .pipeline-step.waiting .step-status { color: #a1a1aa; }
 
     .pipeline-step.active {
-        border-color: #93c5fd;
-        background: #F5F8FF;
-        box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
+        border-color: #000000;
+        background: #fafafa;
     }
-    .pipeline-step.active .step-status { color: #3b82f6; font-weight: 600; }
-    .pipeline-step.active::after {
-        content: '';
-        position: absolute;
-        bottom: 0; left: 0;
-        width: 100%; height: 3px;
-        background: linear-gradient(90deg, #60a5fa, #a78bfa);
-        animation: progress-bar 2.5s ease-in-out infinite;
-    }
+    .pipeline-step.active .step-icon { opacity: 1; filter: none; }
+    .pipeline-step.active .step-status { color: #000000; }
 
     .pipeline-step.done {
-        border-color: #86efac;
-        background: #F0FDF4;
+        background: #ffffff;
+        border-color: #eaeaea;
     }
-    .pipeline-step.done .step-status { color: #16a34a; font-weight: 600; }
+    .pipeline-step.done .step-icon { opacity: 1; color: #000000; }
+    .pipeline-step.done .step-status { color: #000000; }
 
-    @keyframes progress-bar {
-        0% { transform: scaleX(0); transform-origin: left; }
-        50% { transform: scaleX(1); transform-origin: left; }
-        50.1% { transform: scaleX(1); transform-origin: right; }
-        100% { transform: scaleX(0); transform-origin: right; }
+    .connector { display: none; }
+
+    /* ── Micro-animations (21st.dev style) ─────────── */
+    @keyframes pulse-soft {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.85; }
     }
-
-    /* ── Connector arrows between steps ──────────────── */
-    .connector {
-        display: flex;
-        align-items: center;
-        color: #D4D0CA;
-        font-size: 1rem;
-        padding: 0 0.15rem;
+    @keyframes slide-up {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
     }
-    .connector.active { color: #60a5fa; }
-    .connector.done { color: #86efac; }
+    @keyframes border-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        50% { box-shadow: 0 0 0 3px rgba(0,0,0,0.06); }
+    }
+    .pipeline-step.active {
+        animation: pulse-soft 2s ease-in-out infinite, border-glow 2s ease-in-out infinite;
+    }
+    .feature-item {
+        animation: slide-up 0.5s ease-out backwards;
+    }
+    .feature-item:nth-child(1) { animation-delay: 0.05s; }
+    .feature-item:nth-child(2) { animation-delay: 0.1s; }
+    .feature-item:nth-child(3) { animation-delay: 0.15s; }
 
-    /* ── Report Block ────────────────────────────────── */
+    /* ── Report Block (Mono) ────────────────────────── */
     .report-block {
-        background: linear-gradient(145deg, #ffffff, #fdfcfa);
-        border: 1px solid #e2dfd9;
-        border-radius: 16px;
-        padding: 3rem 4rem;
-        margin: 1.5rem 0;
-        font-size: 1rem;
-        line-height: 1.85;
-        color: #27272a;
-        text-align: justify;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02);
-    }
-    .report-block p, .report-block li {
-        text-align: justify;
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 6px;
+        padding: 3rem;
+        margin: 2rem 0;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: #111;
+        box-shadow: none;
     }
     .report-block h2 {
-        color: #18181b;
-        font-weight: 700;
-        font-size: 1.5rem;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-        border-bottom: 1px solid #f4f4f5;
+        border-bottom: 1px solid #000;
         padding-bottom: 0.5rem;
-    }
-    .report-block h3 {
-        font-weight: 600;
-        font-size: 1.2rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-        color: #3f3f46;
+        margin-top: 2rem;
     }
 
-    /* ── Sources Panel ───────────────────────────────── */
+    /* ── Sources Panel (Mono) ───────────────────────── */
     .source-card {
-        background: #FAFAF8;
-        border: 1px solid #EFECE7;
-        border-radius: 10px;
-        padding: 0.85rem 1.1rem;
-        margin: 0.4rem 0;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 6px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .source-card:hover {
-        background: #F5F3EE;
-        border-color: #E8E5E0;
-        transform: translateX(2px);
+        border-color: #000000;
+        background: #fafafa;
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
     .source-title {
-        font-size: 0.82rem;
+        font-size: 0.85rem;
         font-weight: 600;
-        color: #1c1c28;
-        margin-bottom: 0.15rem;
+        color: #000000;
+        margin-bottom: 0.25rem;
+        font-family: 'Inter', sans-serif !important;
     }
-    .source-title a {
-        color: #2563eb;
-        text-decoration: none;
-    }
-    .source-title a:hover { text-decoration: underline; }
+    .source-title a { color: #000000; text-decoration: underline; text-underline-offset: 2px; }
     .source-meta {
         font-size: 0.7rem;
-        color: #a1a1aa;
+        color: #666;
+        font-family: 'JetBrains Mono', monospace !important;
     }
     .source-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 0.62rem;
-        font-weight: 600;
+        background: #f4f4f5;
+        color: #000000;
+        border: 1px solid #e4e4e7;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        font-weight: 500;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        font-family: 'JetBrains Mono', monospace !important;
     }
-    .badge-news { background: #EFF6FF; color: #2563eb; }
-    .badge-market { background: #F0FDF4; color: #16a34a; }
-    .badge-rag { background: #FFFBEB; color: #b45309; }
-    .badge-live { background: #F0FDF4; color: #16a34a; }
-    .badge-static { background: #FFF1F2; color: #be123c; }
 
-    /* ── Welcome Card ────────────────────────────────── */
+    /* ── Welcome Card (Mono) ────────────────────────── */
     .welcome-card {
-        background: #FFFFFF;
-        border: 1px solid #E8E5E0;
-        border-radius: 18px;
-        padding: 3rem 2.5rem;
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 8px;
+        padding: 4rem 2rem;
         text-align: center;
-        max-width: 720px;
-        margin: 2.5rem auto;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+        max-width: 800px;
+        margin: 2rem auto;
+        box-shadow: none;
+        animation: slide-up 0.6s ease-out;
     }
     .welcome-card h2 {
-        font-size: 1.25rem !important;
+        font-size: 1.5rem !important;
         margin-bottom: 0.5rem;
-        color: #1c1c28 !important;
+        color: #000000 !important;
     }
     .welcome-card p {
-        color: #71717a;
-        font-size: 0.84rem;
-        line-height: 1.7;
+        color: #666;
+        font-size: 0.9rem;
+        line-height: 1.6;
     }
 
     .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 0.75rem;
-        margin-top: 1.5rem;
+        gap: 1rem;
+        margin-top: 2rem;
     }
     .feature-item {
-        background: #FAFAF8;
-        border: 1px solid #EFECE7;
-        border-radius: 14px;
-        padding: 1.3rem 1rem;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        background: #ffffff;
+        border: 1px solid #eaeaea;
+        border-radius: 6px;
+        padding: 1.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        text-align: left;
+        cursor: default;
     }
     .feature-item:hover {
-        border-color: #BFDBFE;
-        background: #F5F8FF;
-        transform: translateY(-3px);
-        box-shadow: 0 6px 16px rgba(37,99,235,0.08);
+        border-color: #000000;
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.06);
     }
-    .feature-item .icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
+    .feature-item .icon {
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+        color: #000;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .feature-item:hover .icon {
+        transform: scale(1.1);
+    }
     .feature-item .title {
-        font-size: 0.78rem;
+        font-size: 0.8rem;
         font-weight: 700;
-        color: #1c1c28;
+        color: #000000;
+        margin-bottom: 0.25rem;
     }
     .feature-item .desc {
-        font-size: 0.68rem;
-        color: #a1a1aa;
-        margin-top: 0.2rem;
+        font-size: 0.7rem;
+        color: #666;
     }
 
     /* ── Section Titles ──────────────────────────────── */
     .section-title {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 1.2px;
-        color: #a1a1aa;
-        margin: 1.5rem 0 0.8rem;
+        letter-spacing: 0.05em;
+        color: #666;
+        margin: 2rem 0 1rem;
         padding-bottom: 0.5rem;
-        border-bottom: 1px solid #EFECE7;
+        border-bottom: 1px solid #eaeaea;
+        font-family: 'JetBrains Mono', monospace !important;
     }
 
     /* ── Sidebar ─────────────────────────────────────── */
     section[data-testid="stSidebar"] {
-        background: #FAFAF8 !important;
-        border-right: 1px solid #E8E5E0 !important;
+        background: #f9f9f9 !important;
+        border-right: 1px solid #eaeaea !important;
     }
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3 {
-        color: #1c1c28 !important;
-        font-size: 0.88rem !important;
+        color: #000000 !important;
+        font-size: 0.85rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
     section[data-testid="stSidebar"] label {
-        color: #3f3f46 !important;
+        color: #333 !important;
         font-weight: 500 !important;
-        font-size: 0.76rem !important;
+        font-size: 0.75rem !important;
+        font-family: 'JetBrains Mono', monospace !important;
     }
 
-    /* ── Selectbox & Inputs ──────────────────────────── */
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div {
-        background: #FFFFFF !important;
-        border-color: #E8E5E0 !important;
-        border-radius: 10px !important;
-        color: #1c1c28 !important;
+    /* ── Inputs & Selects ────────────────────────────── */
+    .stSelectbox div[data-baseweb="select"] > div {
+        background: #ffffff !important;
+        border-color: #eaeaea !important;
+        border-radius: 4px !important;
+        color: #000000 !important;
     }
-    section[data-testid="stSidebar"] [data-baseweb="select"] span,
-    section[data-testid="stSidebar"] [data-baseweb="select"] div[class] {
-        color: #1c1c28 !important;
+    /* FIX: Textarea text must be explicitly black — le texte ne se voit plus */
+    .stTextArea textarea,
+    .stTextArea textarea::placeholder,
+    section[data-testid="stSidebar"] textarea,
+    section[data-testid="stSidebar"] textarea::placeholder,
+    [data-baseweb="textarea"] textarea,
+    textarea[data-baseweb="textarea"],
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stTextArea"] textarea::placeholder,
+    textarea {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        caret-color: #000000 !important;
     }
+    .stTextArea textarea::placeholder {
+        color: #999999 !important;
+        -webkit-text-fill-color: #999999 !important;
+        opacity: 1;
+    }
+    .stTextArea textarea,
     section[data-testid="stSidebar"] textarea {
-        background: #FFFFFF !important;
-        border-color: #E8E5E0 !important;
-        border-radius: 10px !important;
-        font-size: 0.82rem !important;
-        color: #1c1c28 !important;
+        background: #ffffff !important;
+        border: 1px solid #eaeaea !important;
+        border-radius: 6px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85rem !important;
+        line-height: 1.5 !important;
+        padding: 0.75rem 1rem !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
     }
-    section[data-testid="stSidebar"] textarea::placeholder {
-        color: #a1a1aa !important;
-    }
+    .stTextArea textarea:focus,
     section[data-testid="stSidebar"] textarea:focus {
-        border-color: #93c5fd !important;
-        box-shadow: 0 0 0 3px rgba(59,130,246,0.08) !important;
-    }
-    section[data-testid="stSidebar"] input {
-        color: #1c1c28 !important;
-    }
-    section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] * {
-        color: #1c1c28 !important;
-    }
-    /* Dropdown menu items */
-    [data-baseweb="menu"] li {
-        color: #1c1c28 !important;
+        border-color: #000000 !important;
+        box-shadow: 0 0 0 2px rgba(0,0,0,0.08) !important;
+        outline: none !important;
     }
 
-    /* ── Primary Button ──────────────────────────────── */
+    /* ── Buttons (with micro-animations) ─────────────── */
+    .stButton > button {
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
     .stButton > button[kind="primary"] {
-        background: #1c1c28 !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        font-size: 0.82rem !important;
-        padding: 0.65rem 1.5rem !important;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+        background: #000000 !important;
+        color: #ffffff !important;
+        border: 1px solid #000000 !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        padding: 0.65rem 1.4rem !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.75rem !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background: #2c2c3a !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
+        background: #333333 !important;
+        border-color: #333333 !important;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+    }
+    .stButton > button[kind="primary"]:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     .stButton > button:not([kind="primary"]) {
-        background: #FFFFFF !important;
-        border-radius: 10px !important;
-        font-weight: 500 !important;
-        font-size: 0.78rem !important;
-        border: 1px solid #E8E5E0 !important;
-        color: #3f3f46 !important;
-        transition: all 0.2s ease !important;
+        background: #ffffff !important;
+        border: 1px solid #eaeaea !important;
+        border-radius: 6px !important;
+        color: #000000 !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.75rem !important;
+        text-transform: uppercase;
     }
     .stButton > button:not([kind="primary"]):hover {
-        border-color: #93c5fd !important;
-        color: #2563eb !important;
-        background: #F5F8FF !important;
-    }
-
-    /* ── Toggle ──────────────────────────────────────── */
-    [data-testid="stToggle"] label span {
-        font-size: 0.78rem !important;
-        color: #3f3f46 !important;
+        border-color: #000000 !important;
+        color: #000000 !important;
+        background: #fafafa !important;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
     }
 
     /* ── Progress bar ────────────────────────────────── */
     .stProgress > div > div {
-        background: linear-gradient(90deg, #86efac, #22c55e) !important;
-        border-radius: 6px;
+        background: #000000 !important;
+        border-radius: 2px;
     }
 
-    /* ── Tabs ─────────────────────────────────────────── */
+    /* ── Tabs ────────────────────────────────────────── */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 0 !important;
+        gap: 1rem !important;
         background: transparent !important;
-        border-bottom: 1px solid #EFECE7 !important;
+        border-bottom: 1px solid #eaeaea !important;
     }
     .stTabs [data-baseweb="tab"] {
-        font-size: 0.78rem !important;
-        font-weight: 500 !important;
-        color: #71717a !important;
-        padding: 0.6rem 1rem !important;
-        border-radius: 8px 8px 0 0 !important;
+        font-size: 0.75rem !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        color: #666 !important;
+        padding: 0.5rem 0 !important;
+        border: none !important;
+        background: transparent !important;
     }
     .stTabs [aria-selected="true"] {
-        color: #2563eb !important;
-        font-weight: 600 !important;
-        border-bottom: 2px solid #2563eb !important;
+        color: #000000 !important;
+        border-bottom: 2px solid #000000 !important;
     }
 
-    /* ── Download Button ─────────────────────────────── */
+    /* ── Download button ────────────────────────────── */
     .stDownloadButton > button {
-        background: #FFFFFF !important;
-        border: 1px solid #E8E5E0 !important;
-        border-radius: 10px !important;
-        color: #3f3f46 !important;
-        font-weight: 500 !important;
-        font-size: 0.78rem !important;
-        transition: all 0.2s ease !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
     .stDownloadButton > button:hover {
-        border-color: #93c5fd !important;
-        color: #2563eb !important;
-        background: #F5F8FF !important;
-    }
-
-    /* ── Hide default metrics styling ────────────────── */
-    div[data-testid="stMetric"] {
-        background: transparent;
-        border: none;
-        padding: 0;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
     }
 
     /* ── Divider ─────────────────────────────────────── */
-    hr { border-color: #EFECE7 !important; }
+    hr { border-color: #eaeaea !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -645,16 +654,15 @@ def _format_report_html(report_text: str) -> str:
     # 1. Main Header
     report_text = re.sub(
         r'═{10,}\s*\n\s*(.+?)\n\s*═{10,}',
-        r'\n\n<div style="text-align:center; margin: 2rem 0; padding: 1.5rem 0; border-top: 2px solid #e2dfd9; border-bottom: 2px solid #e2dfd9; font-weight: 800; font-size: 1.4rem; letter-spacing: 1.5px; color: #18181b; text-transform: uppercase; background: linear-gradient(90deg, transparent, rgba(244,244,245,0.4), transparent);">\1</div>\n\n',
+        r'\n\n<div style="text-align:left; margin: 2rem 0; padding: 1rem 0; border-bottom: 2px solid #000; font-weight: 800; font-size: 1.4rem; letter-spacing: -0.02em; color: #000; text-transform: uppercase;">\1</div>\n\n',
         report_text
     )
     # 2. Section Headers
     report_text = re.sub(
         r'─{10,}\s*(.+?)\s*─{10,}',
-        r'\n\n<div style="display:flex; justify-content:center; align-items:center; margin: 2.5rem 0 1.5rem 0;">'
-        r'<span style="height:1px; background:linear-gradient(90deg, transparent, #d4d4d8); flex:1; margin-right:1.5rem;"></span>'
-        r'<span style="color: #52525b; font-weight: 700; font-size: 0.85rem; letter-spacing: 3px; text-transform: uppercase;">\1</span>'
-        r'<span style="height:1px; background:linear-gradient(90deg, #d4d4d8, transparent); flex:1; margin-left:1.5rem;"></span></div>\n\n',
+        r'\n\n<div style="margin: 2.5rem 0 1rem 0; border-bottom: 1px solid #eaeaea; padding-bottom: 0.5rem;">'
+        r'<span style="color: #000; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: \'JetBrains Mono\', monospace;">\1</span>'
+        r'</div>\n\n',
         report_text
     )
     return report_text
@@ -700,13 +708,7 @@ def _score_label(score: int) -> str:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _detect_entity_type(entity_name: str) -> dict:
-    """Detect if an entity is publicly traded using yfinance.
-    
-    Uses progressive yf.Search with noise stripping to handle
-    entity names like 'Thales Group (France)' → HO.PA.
-    
-    Returns dict with is_public, ticker, exchange, currency, market_cap, sector.
-    """
+    """Detect if an entity is publicly traded using yfinance."""
     try:
         import yfinance as yf
     except ImportError:
@@ -717,30 +719,28 @@ def _detect_entity_type(entity_name: str) -> dict:
     
     candidates = []
     
-    # 1. Tickers explicitly in parentheses if they look like tickers (max 5 chars)
+    # 1. Tickers explicitly in parentheses
     paren_match = re.findall(r'\(([A-Z0-9.\-]{1,5})\)', entity_name)
     candidates.extend([(t, True) for t in paren_match])
     
-    # 2. Entire name if it looks like a pure ticker (max 5 chars)
+    # 2. Entire name if it looks like a pure ticker
     stripped = entity_name.strip()
     if re.match(r'^[A-Z0-9.\-]{1,5}$', stripped):
         candidates.append((stripped, True))
     
-    # 3. Words that look like tickers (3-5 chars uppercase)
+    # 3. Words that look like tickers
     parts = re.split(r'[\s\-]+', entity_name)
     for part in parts:
         clean = part.strip('().,;')
         if re.match(r'^[A-Z0-9.]{3,5}$', clean) and clean not in [c for c, _ in candidates]:
             candidates.append((clean, False))
     
-    # 4. Progressive yf.Search — strip noise and try shorter variants
-    # "Thales Group (France)" → ["THALES GROUP", "THALES"]
-    clean_name = re.sub(r'\([^)]*\)', '', entity_name).strip()  # Remove parenthesized content
-    clean_name = re.sub(r'\s+', ' ', clean_name)  # Normalize whitespace
+    # 4. Progressive yf.Search
+    clean_name = re.sub(r'\([^)]*\)', '', entity_name).strip()
+    clean_name = re.sub(r'\s+', ' ', clean_name)
     words = clean_name.split()
     
     search_variants = []
-    # Try full cleaned name, then progressively drop last word
     for i in range(len(words), 0, -1):
         variant = " ".join(words[:i]).upper()
         if variant and variant not in search_variants:
@@ -755,11 +755,10 @@ def _detect_entity_type(entity_name: str) -> dict:
                 if symbol and quote_type == "EQUITY" and symbol not in [c for c, _ in candidates]:
                     candidates.append((symbol, True))
             if any(s not in [c for c, _ in candidates[:len(paren_match) + 2]] for s in [q.get("symbol") for q in (search_obj.quotes or []) if q.get("quoteType") == "EQUITY"]):
-                break  # Found equity results, stop searching
+                break
         except Exception:
             continue
     
-    # Try each candidate
     for ticker_str, is_explicit in candidates:
         try:
             ticker = yf.Ticker(ticker_str)
@@ -767,7 +766,6 @@ def _detect_entity_type(entity_name: str) -> dict:
             if not info or info.get('regularMarketPrice') is None:
                 continue
             
-            # Cross-validate non-explicit tickers
             if not is_explicit:
                 yf_name = (info.get('shortName') or info.get('longName') or '').lower()
                 yf_words = set(re.findall(r'[a-z]{3,}', yf_name))
@@ -791,31 +789,26 @@ def _detect_entity_type(entity_name: str) -> dict:
 def _render_pipeline(geo="waiting", credit="waiting", synth="waiting"):
     """Render the 3-agent pipeline status bar."""
     icons = {"waiting": "⏳", "active": "🔄", "done": "✅"}
-    statuses = {"waiting": "Waiting", "active": "Running...", "done": "Done"}
-
-    def _conn_class(state):
-        if state == "done": return "done"
-        if state == "active": return "active"
-        return ""
+    statuses = {"waiting": "WAITING", "active": "RUNNING", "done": "DONE"}
 
     st.markdown(f"""
     <div class="pipeline-container">
         <div class="pipeline-step {geo}">
             <div class="step-icon">🌍</div>
             <div class="step-label">Geopolitical</div>
-            <div class="step-status">{icons[geo]} {statuses[geo]}</div>
+            <div class="step-status">{statuses[geo]}</div>
         </div>
-        <div class="connector {_conn_class(credit)}">→</div>
+        <div class="connector">→</div>
         <div class="pipeline-step {credit}">
             <div class="step-icon">💳</div>
             <div class="step-label">Credit</div>
-            <div class="step-status">{icons[credit]} {statuses[credit]}</div>
+            <div class="step-status">{statuses[credit]}</div>
         </div>
-        <div class="connector {_conn_class(synth)}">→</div>
+        <div class="connector">→</div>
         <div class="pipeline-step {synth}">
             <div class="step-icon">📊</div>
             <div class="step-label">Synthesizer</div>
-            <div class="step-status">{icons[synth]} {statuses[synth]}</div>
+            <div class="step-status">{statuses[synth]}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -837,25 +830,23 @@ def _render_metrics(scores: dict):
     if entity_info["is_public"]:
         ticker = entity_info['ticker']
         exchange = entity_info.get('exchange', '')
-        sector = entity_info.get('sector', '')
         badge_html = (
             f'<span class="entity-badge public">'
-            f'📈 Publicly Traded — {ticker}'
-            f'{" · " + exchange if exchange and exchange != "N/A" else ""}'
+            f'PUBLIC — {ticker}'
             f'</span>'
         )
     else:
-        badge_html = '<span class="entity-badge private">🏢 Private Entity</span>'
+        badge_html = '<span class="entity-badge private">PRIVATE</span>'
 
     # Show entity badge above metrics
-    st.markdown(f'<div style="text-align:center; margin-bottom:0.8rem;">{badge_html}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:left; margin-bottom:1rem;">{badge_html}</div>', unsafe_allow_html=True)
 
     cols = st.columns(6)
     items = [
         ("Entity", entity, ""),
-        ("Overall Score", f"{overall}/100", _score_class(overall)),
+        ("Score", f"{overall}/100", _score_class(overall)),
         ("Rating", rating, ""),
-        ("Geopolitical", f"{scores.get('geopolitical', '—')}/100", _score_class(scores.get('geopolitical', 0)) if 'geopolitical' in scores else ""),
+        ("Geo", f"{scores.get('geopolitical', '—')}/100", _score_class(scores.get('geopolitical', 0)) if 'geopolitical' in scores else ""),
         ("Credit", f"{scores.get('credit', '—')}/100", _score_class(scores.get('credit', 0)) if 'credit' in scores else ""),
         ("Market", f"{scores.get('market', '—')}/100", _score_class(scores.get('market', 0)) if 'market' in scores else ""),
     ]
@@ -878,7 +869,7 @@ def _render_radar(scores: dict):
     try:
         import plotly.graph_objects as go
 
-        labels = ["Geopolitical", "Credit / Financial", "Market / Liquidity", "ESG / Transition"]
+        labels = ["Geopolitical", "Credit", "Market", "ESG"]
         values = [scores[k] for k in keys]
         values_closed = values + [values[0]]
         labels_closed = labels + [labels[0]]
@@ -888,22 +879,22 @@ def _render_radar(scores: dict):
             r=values_closed,
             theta=labels_closed,
             fill="toself",
-            fillcolor="rgba(59,130,246,0.08)",
-            line=dict(color="#3b82f6", width=2),
-            marker=dict(size=6, color="#3b82f6"),
+            fillcolor="rgba(0,0,0,0.1)",
+            line=dict(color="#000000", width=2),
+            marker=dict(size=6, color="#000000"),
         ))
         fig.update_layout(
             polar=dict(
                 radialaxis=dict(
                     visible=True, range=[0, 100],
-                    tickfont=dict(size=10, color="#9ca3af"),
-                    gridcolor="#f3f4f6",
-                    linecolor="#e5e7eb",
+                    tickfont=dict(size=10, color="#666", family="JetBrains Mono"),
+                    gridcolor="#eaeaea",
+                    linecolor="#eaeaea",
                 ),
                 angularaxis=dict(
-                    tickfont=dict(size=11, color="#374151"),
-                    gridcolor="#f3f4f6",
-                    linecolor="#e5e7eb",
+                    tickfont=dict(size=11, color="#000", family="JetBrains Mono"),
+                    gridcolor="#eaeaea",
+                    linecolor="#eaeaea",
                 ),
                 bgcolor="white",
             ),
@@ -912,7 +903,7 @@ def _render_radar(scores: dict):
             showlegend=False,
             height=350,
             margin=dict(l=60, r=60, t=30, b=30),
-            font=dict(family="Inter", color="#374151"),
+            font=dict(family="Inter", color="#000"),
         )
         st.plotly_chart(fig, width="stretch")
     except ImportError:
@@ -933,13 +924,13 @@ def _render_sources(sources: dict):
     tabs = []
     tab_keys = []
     if sources.get("news"):
-        tabs.append(f"📰 News ({len(sources['news'])})")
+        tabs.append(f"NEWS ({len(sources['news'])})")
         tab_keys.append("news")
     if sources.get("market"):
-        tabs.append(f"📈 Market Data ({len(sources['market'])})")
+        tabs.append(f"MARKET ({len(sources['market'])})")
         tab_keys.append("market")
     if sources.get("rag"):
-        tabs.append(f"📄 RAG Documents ({len(sources['rag'])})")
+        tabs.append(f"DOCS ({len(sources['rag'])})")
         tab_keys.append("rag")
 
     if not tabs:
@@ -962,8 +953,8 @@ def _render_sources(sources: dict):
                     <div class="source-card">
                         <div class="source-title">{link}</div>
                         <div class="source-meta">
-                            <span class="source-badge badge-news">News</span>
-                            <span class="source-badge badge-live">Live</span>
+                            <span class="source-badge badge-news">NEWS</span>
+                            <span class="source-badge badge-live">LIVE</span>
                             &nbsp; {source} {(' · ' + date_short) if date_short else ''}
                         </div>
                     </div>
@@ -979,8 +970,8 @@ def _render_sources(sources: dict):
                     <div class="source-card">
                         <div class="source-title">{company} ({ticker})</div>
                         <div class="source-meta">
-                            <span class="source-badge badge-market">Market Data</span>
-                            <span class="source-badge badge-live">Live</span>
+                            <span class="source-badge badge-market">MARKET</span>
+                            <span class="source-badge badge-live">LIVE</span>
                             &nbsp; Price: {price} &nbsp;|&nbsp; P/E: {pe}
                         </div>
                     </div>
@@ -1002,10 +993,10 @@ def _render_sources(sources: dict):
                         <div class="source-title">{source_name}</div>
                         <div class="source-meta" style="margin-bottom:0.5rem;">
                             <span class="source-badge badge-rag">RAG</span>
-                            <span class="source-badge badge-static">Static</span>
+                            <span class="source-badge badge-static">STATIC</span>
                             &nbsp; {company} · {doc_type} · Score: {score:.2f}
                         </div>
-                        <div style="font-size:0.75rem; color:#4b5563; line-height:1.5; background:#fff; padding:0.5rem; border-radius:4px; border:1px solid #f3f4f6;">
+                        <div style="font-size:0.75rem; color:#666; line-height:1.5; background:#fafafa; padding:0.5rem; border-radius:4px; border:1px solid #eaeaea; font-family:'JetBrains Mono', monospace;">
                             {content_preview}
                         </div>
                     </div>
@@ -1072,8 +1063,8 @@ if run_btn and query.strip():
             # Update elapsed time
             elapsed = time.time() - start
             time_placeholder.markdown(
-                f"<p style='text-align:center; color:#a1a1aa; font-size:0.75rem;'>"
-                f"⏱ {elapsed:.0f}s elapsed</p>",
+                f"<p style='text-align:center; color:#a1a1aa; font-size:0.75rem; font-family:\"JetBrains Mono\"'>"
+                f"⏱ {elapsed:.0f}s</p>",
                 unsafe_allow_html=True,
             )
             continue
@@ -1104,14 +1095,13 @@ if run_btn and query.strip():
 
         # Render live log
         log_html = "\n".join(
-            f"<div style='padding:0.2rem 0;font-size:0.72rem;color:#3f3f46;border-bottom:1px solid #EFECE7;'>"
-            f"<span style='color:#a1a1aa;font-size:0.65rem;'>{i+1:02d}</span> {line}</div>"
+            f"<div style='padding:0.2rem 0;font-size:0.72rem;color:#333;border-bottom:1px solid #eaeaea;font-family:\"JetBrains Mono\", monospace;'>"
+            f"<span style='color:#999;font-size:0.65rem;margin-right:0.5rem;'>{i+1:02d}</span>{line}</div>"
             for i, line in enumerate(log_lines[-12:])  # Show last 12 lines
         )
         log_container.markdown(
-            f'<div style="background:#FFFFFF;border:1px solid #E8E5E0;border-radius:12px;'
-            f'padding:0.8rem 1rem;max-height:220px;overflow-y:auto;'
-            f'box-shadow:0 1px 2px rgba(0,0,0,0.03);">{log_html}</div>',
+            f'<div style="background:#FFFFFF;border:1px solid #eaeaea;border-radius:6px;'
+            f'padding:0.8rem 1rem;max-height:220px;overflow-y:auto;">{log_html}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1135,8 +1125,8 @@ if run_btn and query.strip():
             _render_pipeline("done", "done", "done")
         progress_bar.progress(100)
         time_placeholder.markdown(
-            f"<p style='text-align:center; color:#16a34a; font-weight:600; font-size:0.85rem;'>"
-            f"✅ Analysis completed in {elapsed:.0f}s</p>",
+            f"<p style='text-align:center; color:#000; font-weight:600; font-size:0.85rem; font-family:\"JetBrains Mono\"'>"
+            f"✅ DONE IN {elapsed:.0f}s</p>",
             unsafe_allow_html=True,
         )
 
@@ -1165,43 +1155,43 @@ if st.session_state.report:
 
         saved_html = ""
         if saved > 0:
-            saved_html = f' <span style="color:#16a34a;font-size:0.7rem;">(saved ${saved:.4f})</span>'
+            saved_html = f' <span style="color:#22c55e;font-size:0.7rem;">(SAVED ${saved:.4f})</span>'
 
         rows_html = ""
         for t in token_usage:
-            agent_name = t.get("agent", "").replace("_", " ").title()
+            agent_name = t.get("agent", "").replace("_", " ").upper()
             rows_html += (
                 f'<tr>'
-                f'<td style="font-weight:500;color:#1c1c28;padding:0.35rem 0.5rem;">{agent_name}</td>'
-                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-variant-numeric:tabular-nums;">{t.get("input", 0):,}</td>'
-                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-variant-numeric:tabular-nums;">{t.get("output", 0):,}</td>'
-                f'<td style="text-align:right;padding:0.35rem 0.5rem;color:#2563eb;font-variant-numeric:tabular-nums;">{t.get("cached", 0):,}</td>'
+                f'<td style="font-weight:600;color:#000;padding:0.35rem 0.5rem;font-family:\"JetBrains Mono\"">{agent_name}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-family:\"JetBrains Mono\"">{t.get("input", 0):,}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;font-family:\"JetBrains Mono\"">{t.get("output", 0):,}</td>'
+                f'<td style="text-align:right;padding:0.35rem 0.5rem;color:#666;font-family:\"JetBrains Mono\"">{t.get("cached", 0):,}</td>'
                 f'</tr>'
             )
 
         token_html = (
-            '<div style="background:#FFFFFF;border:1px solid #E8E5E0;border-radius:14px;'
-            'padding:1.2rem 1.5rem;margin:1rem 0;box-shadow:0 1px 2px rgba(0,0,0,0.03);">'
+            '<div style="background:#FFFFFF;border:1px solid #eaeaea;border-radius:6px;'
+            'padding:1.2rem 1.5rem;margin:1rem 0;">'
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">'
             '<span style="font-size:0.75rem;font-weight:700;text-transform:uppercase;'
-            'letter-spacing:1.2px;color:#a1a1aa;">Token Usage</span>'
-            f'<span style="font-size:0.85rem;font-weight:700;color:#1c1c28;">'
-            f'\U0001f4b0 ${total_cost:.4f}{saved_html}</span>'
+            'letter-spacing:0.05em;color:#666;font-family:\"JetBrains Mono\"">TOKEN USAGE</span>'
+            f'<span style="font-size:0.85rem;font-weight:700;color:#000;font-family:\"JetBrains Mono\"">'
+            f'${total_cost:.4f}{saved_html}</span>'
             '</div>'
-            '<table style="width:100%;font-size:0.75rem;color:#3f3f46;border-collapse:collapse;table-layout:fixed;">'
+            '<table style="width:100%;font-size:0.7rem;color:#333;border-collapse:collapse;table-layout:fixed;">'
             '<colgroup><col style="width:46%;"><col style="width:18%;"><col style="width:18%;"><col style="width:18%;"></colgroup>'
-            '<thead><tr style="border-bottom:1px solid #EFECE7;">'
-            '<th style="text-align:left;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Agent</th>'
-            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Input</th>'
-            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Output</th>'
-            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#a1a1aa;font-weight:600;">Cached</th>'
+            '<thead><tr style="border-bottom:1px solid #eaeaea;">'
+            '<th style="text-align:left;padding:0.4rem 0.5rem;color:#999;font-weight:600;">AGENT</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#999;font-weight:600;">INPUT</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#999;font-weight:600;">OUTPUT</th>'
+            '<th style="text-align:right;padding:0.4rem 0.5rem;color:#999;font-weight:600;">CACHED</th>'
             '</tr></thead>'
             f'<tbody>{rows_html}'
-            '<tr style="border-top:1px solid #EFECE7;font-weight:700;">'
-            f'<td style="padding-top:0.4rem;padding-left:0.5rem;color:#1c1c28;">Total</td>'
-            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-variant-numeric:tabular-nums;">{total_in:,}</td>'
-            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-variant-numeric:tabular-nums;">{total_out:,}</td>'
-            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;color:#2563eb;font-variant-numeric:tabular-nums;">{total_cached:,}</td>'
+            '<tr style="border-top:1px solid #eaeaea;font-weight:700;">'
+            f'<td style="padding-top:0.4rem;padding-left:0.5rem;color:#000;">TOTAL</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-family:\"JetBrains Mono\"">{total_in:,}</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;font-family:\"JetBrains Mono\"">{total_out:,}</td>'
+            f'<td style="text-align:right;padding-top:0.4rem;padding-right:0.5rem;color:#666;font-family:\"JetBrains Mono\"">{total_cached:,}</td>'
             '</tr></tbody></table></div>'
         )
         st.markdown(token_html, unsafe_allow_html=True)
@@ -1218,19 +1208,19 @@ if st.session_state.report:
             label = _score_label(overall)
             st.markdown(f"""
             <div class="metric-card" style="text-align:left; padding:1.5rem;">
-                <p style="color:#6b7280; font-size:0.8rem; margin-bottom:1rem;">
-                    <strong>Risk Level:</strong>
+                <p style="color:#666; font-size:0.8rem; margin-bottom:1rem; font-family:'JetBrains Mono'">
+                    <strong>RISK LEVEL:</strong>
                     <span style="font-size:1.1rem; font-weight:700;" class="{_score_class(overall)}">{label} ({overall}/100)</span>
                 </p>
-                <p style="color:#6b7280; font-size:0.8rem; margin-bottom:0.5rem;">
-                    <strong>Internal Rating:</strong> {scores.get('rating', 'N/A')}
+                <p style="color:#666; font-size:0.8rem; margin-bottom:0.5rem; font-family:'JetBrains Mono'">
+                    <strong>RATING:</strong> {scores.get('rating', 'N/A')}
                 </p>
-                <p style="color:#6b7280; font-size:0.8rem; margin-bottom:0.5rem;">
-                    <strong>Geopolitical:</strong> {scores.get('geopolitical', '—')}/100
-                    &nbsp;|&nbsp; <strong>Credit:</strong> {scores.get('credit', '—')}/100
+                <p style="color:#666; font-size:0.8rem; margin-bottom:0.5rem; font-family:'JetBrains Mono'">
+                    <strong>GEO:</strong> {scores.get('geopolitical', '—')}/100
+                    &nbsp;|&nbsp; <strong>CREDIT:</strong> {scores.get('credit', '—')}/100
                 </p>
-                <p style="color:#6b7280; font-size:0.8rem;">
-                    <strong>Market:</strong> {scores.get('market', '—')}/100
+                <p style="color:#666; font-size:0.8rem; font-family:'JetBrains Mono'">
+                    <strong>MARKET:</strong> {scores.get('market', '—')}/100
                     &nbsp;|&nbsp; <strong>ESG:</strong> {scores.get('esg', '—')}/100
                 </p>
             </div>
@@ -1246,7 +1236,7 @@ if st.session_state.report:
 
     # Download
     st.download_button(
-        "Download Report",
+        "DOWNLOAD REPORT",
         data=report,
         file_name=f"risk_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
         mime="text/markdown",
@@ -1266,18 +1256,18 @@ elif not st.session_state.running:
         <div class="feature-grid">
             <div class="feature-item">
                 <div class="icon">🌍</div>
-                <div class="title">Geopolitical Analyst</div>
+                <div class="title">GEOPOLITICAL</div>
                 <div class="desc">Sanctions, tensions, supply chain</div>
             </div>
             <div class="feature-item">
                 <div class="icon">💳</div>
-                <div class="title">Credit Evaluator</div>
+                <div class="title">CREDIT</div>
                 <div class="desc">Ratios, Altman Z-Score, debt</div>
             </div>
             <div class="feature-item">
                 <div class="icon">📊</div>
-                <div class="title">Market Synthesizer</div>
-                <div class="desc">Integrated score, scenarios, reco.</div>
+                <div class="title">MARKET</div>
+                <div class="desc">Integrated score, scenarios</div>
             </div>
         </div>
     </div>
