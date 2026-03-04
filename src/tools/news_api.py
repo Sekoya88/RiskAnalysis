@@ -44,15 +44,48 @@ def search_geopolitical_news(
                 max_results=min(max_results, 15),
             ))
 
+        import src.db as db
+
         articles = []
         for r in results:
+            url = r.get("url", "")
+            date_str = r.get("date", "")
+            
+            weight = 0.5
+            if url:
+                weight = db.get_source_feedback_score(url)
+                
+            # Time Decay Logic
+            if date_str:
+                from datetime import datetime
+                try:
+                    article_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    now = datetime.now()
+                    days_old = (now - article_date).days
+                    
+                    if days_old <= 1:
+                        weight += 0.2  # Big bonus for today/yesterday
+                    elif days_old <= 3:
+                        weight += 0.1
+                    elif days_old > 30:
+                        weight -= 0.1  # Penalty for > 1 month old
+                except Exception:
+                    pass
+                    
+            if weight < 0.2:
+                continue  # Skip consistently poorly-rated sources
+                    
             articles.append({
                 "title": r.get("title", ""),
                 "body": r.get("body", ""),
                 "source": r.get("source", ""),
-                "url": r.get("url", ""),
+                "url": url,
                 "date": r.get("date", ""),
+                "rl_weight": weight
             })
+            
+        # Sort by RL weight descending
+        articles.sort(key=lambda x: x["rl_weight"], reverse=True)
 
         return json.dumps({
             "query": query,
@@ -87,13 +120,44 @@ def search_web_general(
                 max_results=min(max_results, 10),
             ))
 
+        import src.db as db
+
         items = []
         for r in results:
+            url = r.get("href", "")
+            date_str = r.get("date", "")
+            
+            weight = 0.5
+            if url:
+                weight = db.get_source_feedback_score(url)
+                
+            if date_str:
+                from datetime import datetime
+                try:
+                    article_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    now = datetime.now()
+                    days_old = (now - article_date).days
+                    
+                    if days_old <= 1:
+                        weight += 0.2
+                    elif days_old <= 3:
+                        weight += 0.1
+                    elif days_old > 30:
+                        weight -= 0.1
+                except Exception:
+                    pass
+                    
+            if weight < 0.2:
+                continue
+                
             items.append({
                 "title": r.get("title", ""),
                 "body": r.get("body", ""),
-                "href": r.get("href", ""),
+                "href": url,
+                "rl_weight": weight
             })
+            
+        items.sort(key=lambda x: x["rl_weight"], reverse=True)
 
         return json.dumps({
             "query": query,

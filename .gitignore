@@ -26,3 +26,4 @@ output/
 docker-compose.override.yml
 
 glossaire.md
+RiskAnalysis_Architecture.drawio

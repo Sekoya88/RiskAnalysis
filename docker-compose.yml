@@ -1,15 +1,12 @@
-version: "3.9"
-
 services:
   # ── Redis — Fault-tolerant state management & checkpointing ───────
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: risk-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s

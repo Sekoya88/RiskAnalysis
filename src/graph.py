@@ -89,29 +89,16 @@ def build_graph(checkpointer=None) -> Any:
     return graph
 
 
-async def build_graph_with_redis() -> Any:
-    """Build the graph with Redis-backed state persistence.
+def get_redis_checkpointer():
+    """Return an AsyncRedisSaver context manager for Redis-backed persistence.
 
-    Uses langgraph-checkpoint-redis for fault-tolerant, highly concurrent
-    state management with sub-second latency.
+    Usage:
+        async with get_redis_checkpointer() as checkpointer:
+            graph = build_graph(checkpointer=checkpointer)
+            # ... use graph inside this block ...
+
+    Raises ImportError if langgraph-checkpoint-redis is not installed.
     """
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-
-    try:
-        from langgraph.checkpoint.redis import AsyncRedisSaver
-
-        async with AsyncRedisSaver.from_conn_string(redis_url) as checkpointer:
-            graph = build_graph(checkpointer=checkpointer)
-            return graph, checkpointer
-    except ImportError:
-        print("⚠️  langgraph-checkpoint-redis not available. Using in-memory state.")
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
-        graph = build_graph(checkpointer=checkpointer)
-        return graph, checkpointer
-    except Exception as e:
-        print(f"⚠️  Redis connection failed ({e}). Falling back to in-memory state.")
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
-        graph = build_graph(checkpointer=checkpointer)
-        return graph, checkpointer
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    return AsyncRedisSaver.from_conn_string(redis_url)
