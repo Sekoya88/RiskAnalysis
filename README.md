@@ -24,8 +24,8 @@ A modular **multi-agent framework** leveraging **LangGraph** and the **ReAct rea
 │ Analyst      │ │ Evaluator     │ │ Synthesizer      │
 │              │ │               │ │                  │
 │ • DuckDuckGo │ │ • Yahoo Fin.  │ │ • Cross-ref      │
-│ • News APIs  │ │ • RAG (Hybrid)│ │ • Risk Scoring   │
-│ • RAG (Hybrid│ │ • Web Search  │ │ • Final Report   │
+│ • News APIs  │ │ • RAG(Hybrid) │ │ • Risk Scoring   │
+│ • RAG(Hybrid)│ │ • Web Search  │ │ • Final Report   │
 └──────────────┘ └───────────────┘ └──────────────────┘
        │              │               │
        └──────────────┴───────────────┘
@@ -44,13 +44,14 @@ A modular **multi-agent framework** leveraging **LangGraph** and the **ReAct rea
 | **Orchestration** | LangGraph 1.0 (StateGraph, conditional edges, `add_messages` reducer) |
 | **LLM** | Google Gemini 2.5 Flash via `langchain-google-genai` |
 | **Reasoning Pattern** | ReAct (Thought → Action → Observation loop, max 6 iterations) |
-| **State Management** | Redis 7 via `langgraph-checkpoint-redis` (fallback: `MemorySaver`) |
+| **State Management** | Redis 7 via `langgraph-checkpoint-redis` (fallback: `MemorySaver`) + SQLite (`risk_history.db`) |
 | **Vector DB / RAG** | ChromaDB + HuggingFace `all-MiniLM-L6-v2` embeddings + BM25 keyword search |
 | **Hybrid Retrieval** | Reciprocal Rank Fusion (60% semantic / 40% BM25) |
 | **Market Data** | Yahoo Finance API (`yfinance`) — live prices, ratios, balance sheet |
 | **News / Search** | DuckDuckGo Search API (`ddgs`) — news + web search |
 | **PDF Ingestion** | `pypdf` — loads PDFs from `data/docs/` into ChromaDB at startup |
-| **Web Interface** | Streamlit + Plotly (radar charts, risk visualisation) |
+| **Web Interface** | Streamlit + Plotly (radar charts, risk visualisation, historical graphs) |
+| **ML Feedback Loop** | Reinforcement Learning using SQLite to weight news sources with time decay |
 | **Containerization** | Docker + Docker Compose |
 | **Observability** | LangSmith (tracing LLM calls) + per-agent token tracking |
 | **Async Runtime** | Python `asyncio` |
@@ -174,30 +175,42 @@ Trois optimisations réduisent significativement les coûts :
 | **Supervisor léger** — Le supervisor évalue la qualité via `risk_signals[]` (~2.5K tokens) au lieu de l'historique brut complet (~50K tokens). | ~95% sur l'évaluation | `supervisor.py` → lectures de `risk_signals` |
 | **Retry avec backoff** — Exponentiel avec jitter pour les rate limits Gemini (free tier). Évite les crashs et optimise le quota. | Fiabilité | `utils.py` → `retry_with_backoff()` |
 
-### 6. Sources de données
+### 6. Boucle de Feedback ML (Reinforcement Learning)
+
+Le système intègre un mécanisme de **Reinforcement Learning from Human Feedback (RLHF)** basique :
+
+1. **Collecte (Front-end)** : Dans l'UI Streamlit, l'utilisateur peut voter "✓ USEFUL" ou "✕ POOR" sur chaque source d'actualité utilisée pour générer le rapport.
+2. **Stockage (SQLite)** : Ces votes sont stockés dans `data/risk_history.db` (`table feedback`).
+3. **Filtrage (Agent)** : Au prochain run, quand l'agent cherche des news (via `search_geopolitical_news`), le système interroge la BDD pour obtenir le `ML Confidence Score` de chaque URL.
+    * Si une source a un score < 0.20 (trop de votes négatifs), **elle est purement ignorée** et retirée des résultats fournis au LLM.
+    * Un modificateur de **Time Decay** est appliqué : les articles d'aujourd'hui ou d'hier reçoivent un bonus (+0.20), et ceux de plus de 3 jours un bonus léger (+0.10) pour favoriser la fraîcheur de l'information.
+    * Les résultats sont triés par score RL décroissant avant d'être limités aux top K, assurant que le LLM lit d'abord les sources les plus fiables.
+
+### 7. Sources de données
 
 | Source | Type | Fraîcheur | Fichier |
 | :--- | :--- | :--- | :--- |
-| **DuckDuckGo News** | Live | Actualités récentes | `src/tools/news_api.py` |
+| **DuckDuckGo News** | Live | Actualités récentes + RL Feedback | `src/tools/news_api.py` |
 | **Yahoo Finance** | Live | Données marché temps réel | `src/tools/market_data.py` |
 | **DuckDuckGo Web** | Live | Recherche web générale | `src/tools/news_api.py` |
 | **ChromaDB RAG** | Statique | Documents seed (PDFs 2025-2026) | `src/tools/rag_pipeline.py` |
 
-### 7. Interface Streamlit
+### 8. Interface Streamlit
 
 L'interface web (`app.py`) offre :
 
-- **Dashboard de configuration** — Sidebar avec templates de requêtes pré-définies (Apple, NVIDIA, Volkswagen, TotalEnergies, Deutsche Bank) ou requête custom
-- **Pipeline visuel temps réel** — Barre de progression animée montrant l'état de chaque agent (Waiting → Running → Done)
-- **Streaming de pensée** — Les actions des agents sont remontées en temps réel via `queue.Queue` partagé
-- **Cards de métriques** — Score global, sous-scores par catégorie, notation crédit, avec code couleur (Low/Moderate/High/Critical)
-- **Radar chart Plotly** — Visualisation des 4 sous-scores de risque (Géopolitique, Crédit, Marché, ESG)
-- **Détection d'entité** — Identifie automatiquement si l'entité est cotée en bourse via `yfinance.Search` (badge Public/Privé)
-- **Panel de sources** — Affichage des sources utilisées par catégorie (News, Market Data, RAG Documents)
-- **Historique** — Accès aux rapports précédents depuis la sidebar
-- **Export** — Téléchargement du rapport en Markdown
+* **Dashboard de configuration** — Sidebar avec templates de requêtes pré-définies (Apple, NVIDIA, Volkswagen, TotalEnergies, Deutsche Bank) ou requête custom
+* **Pipeline visuel temps réel** — Barre de progression animée montrant l'état de chaque agent (Waiting → Running → Done)
+* **Streaming de pensée** — Les actions des agents sont remontées en temps réel via `queue.Queue` partagé
+* **Cards de métriques** — Score global, sous-scores par catégorie, notation crédit, avec code couleur (Low/Moderate/High/Critical)
+* **Radar chart Plotly** — Visualisation des 4 sous-scores de risque (Géopolitique, Crédit, Marché, ESG)
+* **Score Over Time** — Graphique linéaire affichant l'évolution du score de risque d'une entité au fil des rapports générés, avec les news majeures au survol.
+* **Détection d'entité** — Identifie automatiquement si l'entité est cotée en bourse via `yfinance.Search` (badge Public/Privé)
+* **Panel de sources & RL Loop** — Affichage des sources avec leur `ML Confidence Score` et boutons de feedback interactifs pour entraîner le modèle.
+* **Historique** — Accès aux rapports précédents depuis la sidebar
+* **Export** — Téléchargement du rapport en Markdown
 
-### 8. LangSmith — Observabilité
+### 9. LangSmith — Observabilité
 
 LangSmith trace **chaque appel LLM** en temps réel. Pour l'utiliser :
 
@@ -215,6 +228,56 @@ LangSmith trace **chaque appel LLM** en temps réel. Pour l'utiliser :
 
 Le système track aussi les **tokens par agent** (input, output, cached) et calcule le coût estimé de chaque run directement dans le terminal et dans l'UI.
 
+### 10. State Management — In-Memory vs Redis
+
+LangGraph sauvegarde un **checkpoint** après chaque nœud du graphe (Supervisor, Geopolitical, Credit, Synthesizer). C'est ce qui permet de reprendre un run interrompu, d'inspecter l'état, et de partager l'état entre instances.
+
+#### Comparaison
+
+| | **MemorySaver** (In-Memory) | **Redis** (via `langgraph-checkpoint-redis`) |
+| :--- | :--- | :--- |
+| **Persistance** | ❌ Perdu au crash/restart du process | ✅ Survit aux crashes, données sur disque |
+| **Scalabilité** | ❌ 1 seul process, 1 seule instance | ✅ Plusieurs workers/instances partagent l'état |
+| **Performance** | ~0ms (RAM) | < 1ms (réseau local) |
+| **Inspection** | ❌ Impossible de voir l'état externe | ✅ `redis-cli KEYS '*'` ou RedisInsight |
+| **Reprise de run** | ❌ Thread ID perdu au restart | ✅ Reprendre un thread ID existant |
+| **Setup** | Aucun (inclus dans LangGraph) | Docker + `redis-stack-server` |
+| **Cas d'usage** | Développement, tests, démos | Production, observabilité, déploiement |
+
+#### Que stocke Redis exactement ?
+
+Après un run complet, Redis contient 3 types de clés :
+
+| Type de clé | Rôle |
+| :--- | :--- |
+| `checkpoint:<thread_id>:<checkpoint_id>` | État complet du graphe à un instant T (messages, risk_signals, next_agent…) |
+| `checkpoint_write:<thread_id>:<checkpoint_id>:...:N` | Écritures individuelles (chaque field modifié par un nœud) |
+| `checkpoint_latest:<thread_id>` | Pointeur vers le dernier checkpoint — permet de reprendre |
+
+#### Quand utiliser Redis ?
+
+* **Dev / Test / Démo** → In-Memory suffit. Pas besoin de Docker.
+* **Production / Multi-utilisateurs** → Redis. Permet la reprise sur erreur, l'inspection de l'état, et le scaling horizontal.
+
+> **Note** : `langgraph-checkpoint-redis` nécessite **Redis Stack** (pas Redis classique), car il utilise le module **RedisSearch** (`FT._LIST`). Le docker-compose fourni utilise l'image `redis/redis-stack-server:latest` qui inclut ce module.
+
+#### Visualiser les données Redis
+
+```bash
+# Vérifier que Redis répond
+docker exec risk-redis redis-cli PING
+
+# Lister tous les checkpoints
+docker exec risk-redis redis-cli KEYS '*'
+
+# Nombre total de clés
+docker exec risk-redis redis-cli DBSIZE
+
+# Interface graphique (RedisInsight)
+docker run -d --name redis-insight -p 5540:5540 redis/redisinsight:latest
+# → Ouvrir http://localhost:5540 → Connect existing database → host.docker.internal:6379
+```
+
 ---
 
 ## Quick Start
@@ -231,14 +294,16 @@ pip install -r requirements.txt
 # Configure: edit .env with your GOOGLE_API_KEY
 # Get a key at: https://aistudio.google.com/apikey
 
-# Run (in-memory state)
-python -m src.main
-
-# Run with custom query
-python -m src.main "Assess credit risk for Tesla Inc."
-
-# Run the web interface
+# Run the web interface (in-memory state)
 streamlit run app.py
+
+# Run with Redis persistence (optionnel)
+docker compose up redis -d   # Lance Redis Stack
+streamlit run app.py          # Activer le toggle "Redis (persistence)" dans la sidebar
+
+# CLI mode
+python -m src.main
+python -m src.main "Assess credit risk for Tesla Inc."
 ```
 
 ### 2. Docker (with Redis)
@@ -279,6 +344,7 @@ RiskAnalysis/
 │   ├── docs/                 # PDFs seed pour le RAG (WEF, Apollo, etc.)
 │   └── chroma_db/            # ChromaDB persistence (auto-généré)
 ├── output/                   # Rapports générés (Markdown)
+├── .streamlit/config.toml    # Streamlit config (force light theme)
 ├── RiskAnalysis_Architecture.drawio  # Diagramme d'architecture (Draw.io)
 ├── glossaire.md              # Glossaire technique EN→FR
 ├── Dockerfile
@@ -308,16 +374,26 @@ RiskAnalysis/
 | `iteration_count` | `int` | Compteur de sécurité anti-boucle infinie (max 10) |
 | `token_usage` | `Annotated[list[dict], operator.add]` | Suivi des tokens par appel LLM |
 
+## Database Schema (`risk_history.db`)
+
+SQLite est utilisé pour stocker l'historique et faire tourner la boucle RL :
+
+| Table | Description |
+| :--- | :--- |
+| `reports` | Historique des rapports générés (ID, entité, scores, timestamp). Permet l'affichage du graphique *Score Over Time*. |
+| `report_news` | Table de liaison stockant les news exactes utilisées pour générer un rapport donné (pour les tooltips du graphique). |
+| `feedback` | Stocke les votes des utilisateurs (`is_helpful`: booleen) pour chaque URL afin d'entraîner le modèle de pondération RL. |
+
 ## Output
 
 The framework produces a structured **Integrated Risk Assessment Report** with:
 
-- Overall Risk Score (0-100)
-- Risk decomposition (Geopolitical, Credit, Market, ESG)
-- Internal Credit Rating (AAA-D) with outlook
-- Scenario analysis (Bull/Base/Bear with probabilities)
-- Actionable recommendations
-- Source citations
+* Overall Risk Score (0-100)
+* Risk decomposition (Geopolitical, Credit, Market, ESG)
+* Internal Credit Rating (AAA-D) with outlook
+* Scenario analysis (Bull/Base/Bear with probabilities)
+* Actionable recommendations
+* Source citations
 
 Reports are saved to `output/risk_report_YYYYMMDD_HHMMSS.md`.
 

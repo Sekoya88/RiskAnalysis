@@ -22,11 +22,13 @@ from datetime import datetime
 
 import streamlit as st
 import warnings
+import uuid
 
 # Suppress annoying google.genai deprecation warning (AiohttpClientSession)
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.genai")
 
 from src.main import run_analysis
+import src.db as db
 
 # ── Page Config ───────────────────────────────────────────────────────
 st.set_page_config(
@@ -181,10 +183,10 @@ st.markdown("""
         color: #000000;
         letter-spacing: -0.04em;
     }
-    .metric-value.score-critical { color: #000000; text-decoration: underline; text-decoration-color: #ef4444; }
-    .metric-value.score-high { color: #000000; text-decoration: underline; text-decoration-color: #f97316; }
-    .metric-value.score-moderate { color: #000000; text-decoration: underline; text-decoration-color: #eab308; }
-    .metric-value.score-low { color: #000000; text-decoration: underline; text-decoration-color: #22c55e; }
+    .metric-value.score-critical { color: #000000; text-decoration: underline; text-decoration-style: double; text-decoration-color: #000000; }
+    .metric-value.score-high { color: #000000; text-decoration: underline; text-decoration-style: solid; text-decoration-color: #000000; }
+    .metric-value.score-moderate { color: #000000; text-decoration: underline; text-decoration-style: dashed; text-decoration-color: #666666; }
+    .metric-value.score-low { color: #000000; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: #999999; }
 
     /* ── Agent Pipeline Steps (Mono) ─────────────────── */
     .pipeline-container {
@@ -416,6 +418,19 @@ st.markdown("""
         font-size: 0.75rem !important;
         font-family: 'JetBrains Mono', monospace !important;
     }
+    /* Toggle text — ensure visibility */
+    section[data-testid="stSidebar"] label span,
+    section[data-testid="stSidebar"] label p,
+    section[data-testid="stSidebar"] label div,
+    section[data-testid="stSidebar"] .stCheckbox label span,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] span,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] label,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        opacity: 1 !important;
+    }
 
     /* ── Inputs & Selects ────────────────────────────── */
     .stSelectbox div[data-baseweb="select"] > div {
@@ -504,6 +519,96 @@ st.markdown("""
         transform: translateY(-1px);
         box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
     }
+
+    /* ── Feedback Buttons — Source Cards ────────── */
+    .feedback-row {
+        display: flex;
+        gap: 0.5rem;
+        margin: 0.4rem 0 0.8rem 0;
+    }
+    .feedback-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.3rem 1rem;
+        border-radius: 40px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+        border: 2px solid;
+        min-width: 80px;
+        text-align: center;
+    }
+    .feedback-btn-useful {
+        background: #000000;
+        border-color: #000000;
+        color: #ffffff;
+    }
+    .feedback-btn-useful:hover {
+        background: #333333;
+        border-color: #333333;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+    }
+    .feedback-btn-poor {
+        background: #ffffff;
+        border-color: #000000;
+        color: #000000;
+    }
+    .feedback-btn-poor:hover {
+        background: #f5f5f5;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+    }
+    .feedback-btn-selected {
+        background: #000000 !important;
+        border-color: #000000 !important;
+        color: #ffffff !important;
+        pointer-events: none;
+    }
+    .feedback-btn-ghost {
+        opacity: 0.35;
+        pointer-events: none;
+        border-color: #ccc;
+        color: #999;
+    }
+
+    /* ── Redis status indicator ──────────────────── */
+    .redis-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 0.5rem 0;
+    }
+    .redis-indicator.redis-off {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+    }
+    .redis-indicator.redis-on {
+        background: #d4edda;
+        border: 1px solid #28a745;
+        color: #155724;
+    }
+    .redis-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .redis-dot.off { background: #ffc107; }
+    .redis-dot.on { background: #28a745; animation: pulse-soft 1.5s ease-in-out infinite; }
 
     /* ── Progress bar ────────────────────────────────── */
     .stProgress > div > div {
@@ -606,11 +711,20 @@ with st.sidebar:
     )
 
     use_redis = st.toggle("Redis (persistence)", value=False)
+    if use_redis:
+        st.markdown(
+            '<div class="redis-indicator redis-on"><span class="redis-dot on"></span> Redis Connected</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="redis-indicator redis-off"><span class="redis-dot off"></span> In-Memory Mode</div>',
+            unsafe_allow_html=True,
+        )
 
     run_btn = st.button(
         "Run Analysis",
         type="primary",
-        use_container_width=True,
         disabled=st.session_state.running or not query.strip(),
     )
 
@@ -624,7 +738,7 @@ with st.sidebar:
     if reports:
         names = [os.path.basename(r) for r in reports]
         selected_report = st.selectbox("Report", names, label_visibility="collapsed")
-        if st.button("View Report", use_container_width=True):
+        if st.button("View Report"):
             with open(os.path.join(output_dir, selected_report)) as f:
                 content = f.read()
             
@@ -910,8 +1024,8 @@ def _render_radar(scores: dict):
         pass
 
 
-def _render_sources(sources: dict):
-    """Render the sources panel showing data provenance."""
+def _render_sources(sources: dict, report_id: str = None):
+    """Render the sources panel showing data provenance and RL feedback mechanism."""
     if not sources:
         return
 
@@ -924,6 +1038,7 @@ def _render_sources(sources: dict):
     tabs = []
     tab_keys = []
     if sources.get("news"):
+        sources["news"] = sources["news"][:10]  # Force cut off at 10 items
         tabs.append(f"NEWS ({len(sources['news'])})")
         tab_keys.append("news")
     if sources.get("market"):
@@ -938,27 +1053,95 @@ def _render_sources(sources: dict):
 
     st_tabs = st.tabs(tabs)
 
+    # Track clicked states
+    if "feedback_clicked" not in st.session_state:
+        st.session_state.feedback_clicked = set()
+
+    def _save_feedback(url: str, is_helpful: bool, btn_key: str):
+        if report_id:
+            db.save_feedback(report_id, url, is_helpful)
+            st.session_state.feedback_clicked.add(btn_key)
+            st.toast(f"✅ Feedback saved! This trains our RL loop.", icon="🧠")
+
     for tab, key in zip(st_tabs, tab_keys):
         with tab:
             if key == "news":
-                for article in sources["news"]:
+                # Limit to 10 news sources
+                for i, article in enumerate(sources["news"]):
                     title = html_mod.escape(article.get("title", "Untitled"))
                     url = article.get("url", "")
                     source = html_mod.escape(article.get("source", ""))
                     date = article.get("date", "")
                     date_short = date[:10] if date else ""
+                    
+                    # ML RL Loop Feedback Weight
+                    weight = db.get_source_feedback_score(url) if url else 0.5
+                    
+                    # Add time decay factor if it has a date
+                    from datetime import datetime
+                    time_bonus = ""
+                    if date_short:
+                        try:
+                            article_date = datetime.strptime(date_short, "%Y-%m-%d")
+                            today = datetime.now()
+                            days_old = (today - article_date).days
+                            if days_old <= 3:
+                                time_bonus = ' <span style="color:#000000; font-weight:bold; background:#eaeaea; padding:1px 4px; border-radius:3px; font-size:0.6rem;">RECENT</span>'
+                                weight += 0.1
+                            elif days_old <= 1:
+                                time_bonus = ' <span style="color:#ffffff; font-weight:bold; background:#000000; padding:1px 4px; border-radius:3px; font-size:0.6rem;">HOT</span>'
+                                weight += 0.2
+                        except ValueError:
+                            pass
+
+                    weight_badge = f'<span style="font-size:0.65rem; color:#888;" title="Reinforcement Learning Confidence Score based on user feedback">ML Confidence: {weight:.2f}</span>'
 
                     link = f'<a href="{url}" target="_blank">{title}</a>' if url else title
                     st.markdown(f"""
                     <div class="source-card">
-                        <div class="source-title">{link}</div>
+                        <div class="source-title">{link}{time_bonus}</div>
                         <div class="source-meta">
                             <span class="source-badge badge-news">NEWS</span>
                             <span class="source-badge badge-live">LIVE</span>
-                            &nbsp; {source} {(' · ' + date_short) if date_short else ''}
+                            &nbsp; {source} {(' · ' + date_short) if date_short else ''} &nbsp;|&nbsp; {weight_badge}
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    if url:
+                        btn_up_key = f"up_{report_id}_{i}"
+                        btn_down_key = f"down_{report_id}_{i}"
+                        
+                        # Determine button states
+                        up_clicked = btn_up_key in st.session_state.feedback_clicked
+                        down_clicked = btn_down_key in st.session_state.feedback_clicked
+                        
+                        if up_clicked:
+                            useful_cls = "feedback-btn feedback-btn-selected"
+                            poor_cls = "feedback-btn feedback-btn-ghost"
+                        elif down_clicked:
+                            useful_cls = "feedback-btn feedback-btn-ghost"
+                            poor_cls = "feedback-btn feedback-btn-selected"
+                        else:
+                            useful_cls = "feedback-btn feedback-btn-useful"
+                            poor_cls = "feedback-btn feedback-btn-poor"
+                        
+                        # Render styled HTML buttons with Streamlit fallback for interactivity
+                        col1, col2, _ = st.columns([1, 1, 8])
+                        with col1:
+                            if up_clicked or down_clicked:
+                                st.markdown(f'<div class="{useful_cls}">USEFUL</div>', unsafe_allow_html=True)
+                            else:
+                                if st.button("✓ USEFUL", key=f"up_{btn_up_key}", help="Train model to prefer this source"):
+                                    _save_feedback(url, True, btn_up_key)
+                                    st.rerun()
+                        with col2:
+                            if up_clicked or down_clicked:
+                                st.markdown(f'<div class="{poor_cls}">POOR</div>', unsafe_allow_html=True)
+                            else:
+                                if st.button("✗ POOR", key=f"down_{btn_down_key}", help="Train model to avoid this source"):
+                                    _save_feedback(url, False, btn_down_key)
+                                    st.rerun()
 
             elif key == "market":
                 for data in sources["market"]:
@@ -1004,7 +1187,7 @@ def _render_sources(sources: dict):
 
 
 # ── Main — Run Analysis ──────────────────────────────────────────────
-if run_btn and query.strip():
+if run_btn and query.strip() and not st.session_state.running:
     st.session_state.running = True
     st.session_state.report = None
     st.session_state.sources = None
@@ -1120,6 +1303,13 @@ if run_btn and query.strip():
         st.session_state.sources = result_holder["sources"]
         st.session_state.token_usage = result_holder["token_usage"]
         st.session_state.elapsed = elapsed
+        
+        # Save report to history DB
+        st.session_state.report_id = str(uuid.uuid4())
+        scores = _parse_scores(st.session_state.report)
+        entity = scores.get("entity", "N/A").strip()
+        if entity and entity != "N/A":
+            db.save_report(st.session_state.report_id, entity, scores, st.session_state.report, st.session_state.sources)
 
         with pipeline_placeholder.container():
             _render_pipeline("done", "done", "done")
@@ -1225,9 +1415,63 @@ if st.session_state.report:
                 </p>
             </div>
             """, unsafe_allow_html=True)
+            
+    # Display Score Over Time Chart
+    entity_name = scores.get("entity", "N/A").strip()
+    if entity_name and entity_name != "N/A":
+        history = db.get_history_for_entity(entity_name)
+        if len(history) > 0:
+            st.markdown('<div class="section-title">Score Over Time & Key News</div>', unsafe_allow_html=True)
+            try:
+                import plotly.graph_objects as go
+                import sqlite3
+                
+                dates = [row['timestamp'] for row in history]
+                overalls = [row['overall_score'] for row in history]
+                report_ids = [row['id'] for row in history]
+                
+                # Fetch news titles for tooltips
+                conn = sqlite3.connect(db.DB_PATH)
+                c = conn.cursor()
+                hover_texts = []
+                for rid, score, date in zip(report_ids, overalls, dates):
+                    c.execute("SELECT title, source FROM report_news WHERE report_id = ? LIMIT 3", (rid,))
+                    news_items = c.fetchall()
+                    if news_items:
+                        news_str = "<br>".join([f"- {n[1]}: {n[0][:40]}..." for n in news_items])
+                        hover_texts.append(f"<b>Score: {score}</b><br>Date: {date[:10]}<br><br><i>Key News:</i><br>{news_str}")
+                    else:
+                        hover_texts.append(f"<b>Score: {score}</b><br>Date: {date[:10]}")
+                conn.close()
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=dates, y=overalls,
+                    mode='lines+markers',
+                    name='Overall Risk Score',
+                    text=hover_texts,
+                    hoverinfo='text',
+                    line=dict(color='#000000', width=3),
+                    marker=dict(size=8, color='#000000')
+                ))
+                fig.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Risk Score",
+                    yaxis=dict(range=[0, 100]),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    height=300,
+                    margin=dict(l=40, r=40, t=30, b=30),
+                    font=dict(family="Inter", color="#000")
+                )
+                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#eaeaea')
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#eaeaea')
+                st.plotly_chart(fig, width="stretch")
+            except ImportError:
+                st.caption("Plotly not installed. Historical scores cannot be charted.")
 
     # Sources panel
-    _render_sources(st.session_state.sources)
+    _render_sources(st.session_state.sources, st.session_state.get("report_id", "demo-report"))
 
     # Full report
     formatted_report = _format_report_html(report)
@@ -1240,7 +1484,7 @@ if st.session_state.report:
         data=report,
         file_name=f"risk_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
         mime="text/markdown",
-        use_container_width=True,
+
     )
 
 

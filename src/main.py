@@ -62,17 +62,9 @@ async def run_analysis(
     Returns:
         The final integrated risk report.
     """
-    from src.graph import build_graph, build_graph_with_redis
+    from src.graph import build_graph
 
     thread_id = thread_id or str(uuid.uuid4())
-
-    # ── Build graph ───────────────────────────────────────────────────
-    if use_redis:
-        graph, checkpointer = await build_graph_with_redis()
-    else:
-        from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver()
-        graph = build_graph(checkpointer=checkpointer)
 
     # ── Initial state ─────────────────────────────────────────────────
     initial_state = {
@@ -84,18 +76,87 @@ async def run_analysis(
         "iteration_count": 0,
         "token_usage": [],
     }
-
     config = {"configurable": {"thread_id": thread_id}}
 
-    # ── Execute ───────────────────────────────────────────────────────
+    # ── Build graph + execute ─────────────────────────────────────────
+    # When Redis is enabled, we MUST keep the async with block open for
+    # the entire graph execution + report extraction. Otherwise the Redis
+    # connection closes and checkpointing fails.
+
+    redis_ok = False
+
+    if use_redis:
+        try:
+            from src.graph import get_redis_checkpointer
+            redis_cm = get_redis_checkpointer()
+        except ImportError:
+            redis_cm = None
+            print("⚠️  langgraph-checkpoint-redis not installed. Using in-memory state.")
+            print("   Install with: pip install langgraph-checkpoint-redis")
+        except Exception as e:
+            redis_cm = None
+            err_msg = str(e)
+            if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
+                print(
+                    f"⚠️  Redis is running but missing the RedisSearch module.\n"
+                    f"   langgraph-checkpoint-redis requires redis-stack-server.\n"
+                    f"   Fix: docker compose up redis -d\n"
+                    f"   Falling back to in-memory state."
+                )
+            else:
+                print(f"⚠️  Redis connection failed ({e}). Falling back to in-memory state.")
+    else:
+        redis_cm = None
+
+    if use_redis and redis_cm is not None:
+        # ── Redis path: everything inside the async with ──────────
+        try:
+            async with redis_cm as checkpointer:
+                redis_ok = True
+                graph = build_graph(checkpointer=checkpointer)
+                backend_label = "Redis"
+                print(f"📋 Query: {query[:100]}...")
+                print(f"🔑 Thread ID: {thread_id}")
+                print(f"💾 State Backend: {backend_label}")
+                print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print("-" * 70)
+
+                return await _execute_graph(graph, initial_state, config)
+        except Exception as e:
+            err_msg = str(e)
+            if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
+                print(
+                    f"⚠️  Redis is running but missing the RedisSearch module.\n"
+                    f"   langgraph-checkpoint-redis requires redis-stack-server.\n"
+                    f"   Fix: docker compose up redis -d\n"
+                    f"   Falling back to in-memory state."
+                )
+            else:
+                print(f"⚠️  Redis connection failed ({e}). Falling back to in-memory state.")
+            # Fall through to in-memory path below
+
+    # ── In-memory path ────────────────────────────────────────────
+    from langgraph.checkpoint.memory import MemorySaver
+    checkpointer = MemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    backend_label = "In-Memory"
+    if use_redis:
+        backend_label = "In-Memory (Redis failed — see above)"
     print(f"📋 Query: {query[:100]}...")
     print(f"🔑 Thread ID: {thread_id}")
-    print(f"💾 State Backend: {'Redis' if use_redis else 'In-Memory'}")
+    print(f"💾 State Backend: {backend_label}")
     print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 70)
 
+    return await _execute_graph(graph, initial_state, config)
+
+
+async def _execute_graph(graph, initial_state, config):
+    """Run the graph and extract report + sources. Shared by Redis & in-memory paths."""
+    from src.agents.nodes import _extract_text
+    from langchain_core.messages import ToolMessage as _ToolMessage
+
     start_time = time.time()
-    final_state = None
 
     async for event in graph.astream(initial_state, config=config):
         for node_name, node_output in event.items():
@@ -112,29 +173,22 @@ async def run_analysis(
             if "next_agent" in node_output:
                 print(f"   ➡️  Next: {node_output['next_agent']}")
 
-            final_state = node_output
-
     elapsed = time.time() - start_time
     print("\n" + "═" * 70)
     print(f"✅ Analysis completed in {elapsed:.1f} seconds")
     print("═" * 70)
 
     # ── Extract final report + sources ────────────────────────────────
-    from src.agents.nodes import _extract_text
-    from langchain_core.messages import ToolMessage as _ToolMessage
-
     final_report = ""
     sources = {"news": [], "market": [], "rag": []}
+    token_usage = []
 
-    # Try to get the report from graph state snapshot
     try:
         snapshot = await graph.aget_state(config)
         if snapshot and snapshot.values:
-            # First try the final_report field
             raw = snapshot.values.get("final_report", "")
             final_report = _extract_text(raw).strip()
 
-            # Fallback: extract from market_synthesizer messages
             messages = snapshot.values.get("messages", [])
             if not final_report:
                 for msg in reversed(messages):
@@ -143,7 +197,6 @@ async def run_analysis(
                         if final_report:
                             break
 
-                # Last fallback: last named agent message
                 if not final_report and messages:
                     for msg in reversed(messages):
                         if hasattr(msg, "name") and msg.name:
@@ -160,7 +213,6 @@ async def run_analysis(
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-                # News articles (from search_geopolitical_news)
                 if "articles" in data:
                     for article in data["articles"]:
                         entry = {
@@ -172,7 +224,6 @@ async def run_analysis(
                         if entry["title"] and entry not in sources["news"]:
                             sources["news"].append(entry)
 
-                # Web search results (from search_web_general)
                 elif "results" in data and "articles" not in data:
                     for result in data["results"]:
                         entry = {
@@ -184,7 +235,6 @@ async def run_analysis(
                         if entry["title"] and entry not in sources["news"]:
                             sources["news"].append(entry)
 
-                # Market data (from get_market_data)
                 elif "market_snapshot" in data or "company" in data:
                     entry = {
                         "company": data.get("company", ""),
@@ -195,7 +245,6 @@ async def run_analysis(
                     if entry["company"] and entry not in sources["market"]:
                         sources["market"].append(entry)
 
-                # RAG documents (from search_corporate_disclosures)
                 elif "documents" in data:
                     for doc in data["documents"]:
                         entry = {
@@ -208,12 +257,10 @@ async def run_analysis(
                         if entry["source"] and entry not in sources["rag"]:
                             sources["rag"].append(entry)
 
-            # ── Extract token usage ───────────────────────────────────
             token_usage = snapshot.values.get("token_usage", [])
 
     except Exception as e:
         final_report = final_report or f"Report extraction failed: {e}"
-        token_usage = []
 
     return final_report, sources, token_usage
 
