@@ -14,7 +14,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 
 from src.agents.prompts import SUPERVISOR_EVALUATION_PROMPT
 from src.state.schema import AgentState
@@ -28,7 +28,7 @@ AGENT_OPTIONS = REQUIRED_PIPELINE + ["FINISH"]
 
 
 def _extract_text(content: Any) -> str:
-    """Extract plain text from Gemini's structured content."""
+    """Extract plain text from LLM structured content."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -73,11 +73,11 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     # ONLY the clean, synthesized reports from `risk_signals`. This saves
     # massive amounts of tokens while preserving deep critical thinking.
     
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
+    llm = ChatOllama(
+        model=os.getenv("OLLAMA_MODEL", "qwen3.5"),
+        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=0.0,
-        max_output_tokens=512,
+        num_predict=512,
     )
 
     # Compile the reports for the supervisor to read

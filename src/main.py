@@ -43,7 +43,7 @@ def _print_banner():
     print("\n" + "═" * 70)
     print("  🌐 AGENTIC RISK ASSESSMENT FRAMEWORK")
     print("  Multi-Agent LLM System for Credit & Geopolitical Risk")
-    print("  Stack: LangGraph • Gemini 2.5 Flash • ChromaDB • Redis")
+    print("  Stack: LangGraph • Ollama (Local LLM) • ChromaDB • Redis")
     print("═" * 70 + "\n")
 
 
