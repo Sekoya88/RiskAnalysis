@@ -20,3 +20,5 @@ plotly
 pypdf
 rank_bm25
 requests
+pyyaml
+tomli;python_version<"3.11"

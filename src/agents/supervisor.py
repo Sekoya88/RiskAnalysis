@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
 from langchain_ollama import ChatOllama
 
-from src.agents.prompts import SUPERVISOR_EVALUATION_PROMPT
+from src.agents.skills import load_skill
 from src.state.schema import AgentState
 from src.utils import retry_with_backoff
 
@@ -73,8 +73,9 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     # ONLY the clean, synthesized reports from `risk_signals`. This saves
     # massive amounts of tokens while preserving deep critical thinking.
     
+    model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
     llm = ChatOllama(
-        model=os.getenv("OLLAMA_MODEL", "qwen3.5"),
+        model=model,
         base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=0.0,
         num_predict=512,
@@ -86,7 +87,10 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
         for signal in state.get("risk_signals", [])
     )
 
-    system_msg = f"""{SUPERVISOR_EVALUATION_PROMPT}
+    supervisor_skill = load_skill("supervisor")
+    evaluation_prompt = supervisor_skill.prompt()
+
+    system_msg = f"""{evaluation_prompt}
 
 Current iteration: {iteration_count}/10
 Here are the final synthesized reports from your team:

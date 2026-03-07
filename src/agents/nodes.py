@@ -18,11 +18,8 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
 
-from src.agents.prompts import (
-    CREDIT_RISK_EVALUATOR_PROMPT,
-    GEOPOLITICAL_ANALYST_PROMPT,
-    MARKET_SYNTHESIZER_PROMPT,
-)
+from src.agents.skills import get_skill_prompt
+from src.config.providers import get_model_config
 from src.state.schema import AgentState
 from src.tools.market_data import get_market_data
 from src.tools.news_api import search_geopolitical_news, search_web_general
@@ -32,13 +29,15 @@ from src.utils import retry_with_backoff
 load_dotenv()
 
 # ── LLM Configuration ────────────────────────────────────────────────
-def _get_llm(temperature: float = 0.1, num_predict: int = 8192) -> ChatOllama:
-    """Instantiate a local LLM via Ollama."""
+def _get_llm(temperature: float | None = None, num_predict: int | None = None) -> ChatOllama:
+    """Instantiate a local LLM via Ollama with per-model config from deepagents.toml."""
+    model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+    cfg = get_model_config(model)
     return ChatOllama(
-        model=os.getenv("OLLAMA_MODEL", "qwen3.5"),
+        model=model,
         base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        temperature=temperature,
-        num_predict=num_predict,
+        temperature=temperature if temperature is not None else cfg.get("temperature", 0.1),
+        num_predict=num_predict if num_predict is not None else cfg.get("num_predict", 4096),
     )
 
 
@@ -244,7 +243,7 @@ async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,
-        system_prompt=GEOPOLITICAL_ANALYST_PROMPT,
+        system_prompt=get_skill_prompt("geopolitical-analyst"),
         state_messages=state["messages"],
         max_iterations=6,
     )
@@ -270,7 +269,7 @@ async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,
-        system_prompt=CREDIT_RISK_EVALUATOR_PROMPT,
+        system_prompt=get_skill_prompt("credit-evaluator"),
         state_messages=state["messages"],
         max_iterations=6,
     )
@@ -297,7 +296,7 @@ async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
     # Inject today's date into the prompt
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
-    formatted_prompt = MARKET_SYNTHESIZER_PROMPT.format(today=today)
+    formatted_prompt = get_skill_prompt("market-synthesizer", today=today)
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,
