@@ -1,7 +1,7 @@
 """
 Retry utilities — Exponential backoff with jitter for API rate limits.
 
-Handles Gemini free-tier quota constraints by implementing intelligent
+Handles API rate-limit constraints by implementing intelligent
 retry strategies with configurable delays.
 """
 

@@ -10,14 +10,41 @@ Provides the agent with:
 
 from __future__ import annotations
 
-import json
 from typing import Optional
 
 import yfinance as yf
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 
-@tool
+# ── Schemas ──────────────────────────────────────────────────────────
+
+class GetMarketDataInput(BaseModel):
+    ticker: str = Field(
+        ...,
+        description="Stock ticker symbol (e.g. 'AAPL', 'MSFT', 'LVMH.PA').",
+    )
+    period: str = Field(
+        default="1mo",
+        description="Historical price period — '1d','5d','1mo','3mo','6mo','1y','2y'.",
+    )
+    include_financials: bool = Field(
+        default=True,
+        description="If True, include balance-sheet ratios and earnings.",
+    )
+
+
+class GetMarketDataOutput(BaseModel):
+    market_snapshot: dict = Field(default_factory=dict, description="Core market data snapshot.")
+    financial_ratios: dict = Field(default_factory=dict, description="Financial ratios (if requested).")
+    price_history: list[dict] = Field(default_factory=list, description="Recent price records.")
+    price_change_pct: float = Field(default=0.0, description="Price change percentage over the period.")
+    error: Optional[str] = Field(default=None, description="Error message if the tool fails.")
+
+
+# ── Tool ─────────────────────────────────────────────────────────────
+
+@tool(args_schema=GetMarketDataInput)
 def get_market_data(
     ticker: str,
     period: str = "1mo",
@@ -30,9 +57,6 @@ def get_market_data(
         ticker: Stock ticker symbol (e.g. 'AAPL', 'MSFT', 'LVMH.PA').
         period: Historical price period — '1d','5d','1mo','3mo','6mo','1y','2y'.
         include_financials: If True, include balance-sheet ratios and earnings.
-
-    Returns:
-        JSON string with market snapshot and optional financials.
     """
     try:
         stock = yf.Ticker(ticker)
@@ -59,8 +83,9 @@ def get_market_data(
         }
 
         # ── Financial ratios ──────────────────────────────────────────
+        financials: dict = {}
         if include_financials:
-            snapshot["financials"] = {
+            financials = {
                 "revenue": info.get("totalRevenue"),
                 "gross_margins": info.get("grossMargins"),
                 "operating_margins": info.get("operatingMargins"),
@@ -73,8 +98,8 @@ def get_market_data(
                 "earnings_growth": info.get("earningsGrowth"),
                 "revenue_growth": info.get("revenueGrowth"),
             }
+            snapshot["financials"] = financials
 
-            # Credit-relevant metrics
             snapshot["credit_signals"] = {
                 "total_debt": info.get("totalDebt"),
                 "total_cash": info.get("totalCash"),
@@ -86,25 +111,37 @@ def get_market_data(
             }
 
         # ── Price history (compact) ───────────────────────────────────
+        price_history: list[dict] = []
+        price_change_pct = 0.0
         hist = stock.history(period=period)
         if not hist.empty:
-            price_records = []
             for date, row in hist.tail(5).iterrows():
-                price_records.append({
+                price_history.append({
                     "date": date.strftime("%Y-%m-%d"),
                     "close": round(row["Close"], 2),
                     "volume": int(row["Volume"]),
                 })
-            snapshot["recent_prices"] = price_records
-            snapshot["price_change_pct"] = round(
-                ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]) * 100,
-                2,
-            )
+            snapshot["recent_prices"] = price_history
+            if hist["Close"].iloc[0] != 0:
+                price_change_pct = round(
+                    ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]) * 100,
+                    2,
+                )
+            snapshot["price_change_pct"] = price_change_pct
 
-        return json.dumps(snapshot, separators=(",", ":"), default=str)
+        output = GetMarketDataOutput(
+            market_snapshot=snapshot,
+            financial_ratios=financials,
+            price_history=price_history,
+            price_change_pct=price_change_pct,
+        )
+        return output.model_dump_json()
 
     except Exception as e:
-        return json.dumps({"error": f"Failed to fetch data for {ticker}: {str(e)}"})
+        output = GetMarketDataOutput(
+            error=f"Failed to fetch data for {ticker.upper()}: {str(e)}"
+        )
+        return output.model_dump_json()
 
 
 def get_market_data_tool():

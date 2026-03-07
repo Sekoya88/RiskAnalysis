@@ -24,8 +24,8 @@ import streamlit as st
 import warnings
 import uuid
 
-# Suppress annoying google.genai deprecation warning (AiohttpClientSession)
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.genai")
+# Suppress deprecation warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from src.main import run_analysis
 import src.db as db
@@ -654,7 +654,7 @@ st.markdown("""
 st.markdown("""
 <div class="app-header">
     <h1>Risk Assessment Framework</h1>
-    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Gemini 2.5 Flash</p>
+    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Ollama (Local LLM)</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -709,6 +709,15 @@ with st.sidebar:
         height=140,
         placeholder="Describe the risk analysis you need...",
     )
+
+    # Model selection
+    OLLAMA_MODELS = {
+        "qwen3.5 (9B — fast, good tool-use)": "qwen3.5",
+        "lfm2 (24B — strong reasoning)": "lfm2",
+    }
+    model_label = st.selectbox("LLM Model", list(OLLAMA_MODELS.keys()))
+    selected_model = OLLAMA_MODELS[model_label]
+    os.environ["OLLAMA_MODEL"] = selected_model
 
     use_redis = st.toggle("Redis (persistence)", value=False)
     if use_redis:

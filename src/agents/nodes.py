@@ -2,7 +2,7 @@
 Agent Nodes — LangGraph node functions for each specialized agent.
 
 Each node:
-  1. Binds its tools to the LLM (Google Gemini via langchain-google-genai).
+  1. Binds its tools to the LLM (Anthropic Claude via langchain-anthropic).
   2. Invokes the LLM with its specialist system prompt.
   3. Implements ReAct tool-use loop with exponential backoff retry.
   4. Returns an updated AgentState with new messages and risk signals.
@@ -16,13 +16,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 
-from src.agents.prompts import (
-    CREDIT_RISK_EVALUATOR_PROMPT,
-    GEOPOLITICAL_ANALYST_PROMPT,
-    MARKET_SYNTHESIZER_PROMPT,
-)
+from src.agents.skills import get_skill_prompt
+from src.config.providers import get_model_config
 from src.state.schema import AgentState
 from src.tools.market_data import get_market_data
 from src.tools.news_api import search_geopolitical_news, search_web_general
@@ -32,13 +29,15 @@ from src.utils import retry_with_backoff
 load_dotenv()
 
 # ── LLM Configuration ────────────────────────────────────────────────
-def _get_llm(temperature: float = 0.1, max_output_tokens: int = 8192) -> ChatGoogleGenerativeAI:
-    """Instantiate Gemini 2.5 Flash via langchain-google-genai."""
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        temperature=temperature,
-        max_output_tokens=max_output_tokens,
+def _get_llm(temperature: float | None = None, num_predict: int | None = None) -> ChatOllama:
+    """Instantiate a local LLM via Ollama with per-model config from deepagents.toml."""
+    model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+    cfg = get_model_config(model)
+    return ChatOllama(
+        model=model,
+        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        temperature=temperature if temperature is not None else cfg.get("temperature", 0.1),
+        num_predict=num_predict if num_predict is not None else cfg.get("num_predict", 4096),
     )
 
 
@@ -95,50 +94,24 @@ def _prune_messages(messages: list) -> list:
 
 
 def _extract_token_usage(response) -> dict:
-    """Extract token usage from a Gemini LLM response.
+    """Extract token usage from an LLM response.
 
-    LangChain / Gemini can expose usage_metadata in multiple locations:
-      1. response.usage_metadata  (dict or object)
-      2. response.response_metadata["usage_metadata"]
+    LangChain ChatOllama exposes usage_metadata with input_tokens/output_tokens.
     """
     usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
     try:
-        um = None
-        # Method 1: Direct attribute (LangChain >=0.2)
-        raw_um = getattr(response, "usage_metadata", None)
-        if raw_um:
-            if isinstance(raw_um, dict):
-                um = raw_um
-            else:
-                # Object with attributes
-                um = {
-                    "prompt_token_count": getattr(raw_um, "input_tokens", 0) or getattr(raw_um, "prompt_token_count", 0),
-                    "candidates_token_count": getattr(raw_um, "output_tokens", 0) or getattr(raw_um, "candidates_token_count", 0),
-                    "cached_content_token_count": getattr(raw_um, "cached_content_token_count", 0),
-                }
-
-        # Method 2: Nested in response_metadata
-        if not um or all(v == 0 for v in um.values() if isinstance(v, (int, float))):
-            meta = getattr(response, "response_metadata", {}) or {}
-            um2 = meta.get("usage_metadata", {})
-            if um2:
-                um = um2
-
+        um = getattr(response, "usage_metadata", None)
         if um:
-            # LangChain uses input_tokens/output_tokens; Gemini uses prompt_token_count/candidates_token_count
-            usage["input_tokens"] = (
-                um.get("input_tokens", 0) or um.get("prompt_token_count", 0)
-            )
-            usage["output_tokens"] = (
-                um.get("output_tokens", 0) or um.get("candidates_token_count", 0)
-            )
-            usage["cached_tokens"] = um.get("cached_content_token_count", 0)
+            if isinstance(um, dict):
+                usage["input_tokens"] = um.get("input_tokens", 0)
+                usage["output_tokens"] = um.get("output_tokens", 0)
+                usage["cached_tokens"] = um.get("cache_read_input_tokens", 0) or um.get("cached_tokens", 0)
+            else:
+                usage["input_tokens"] = getattr(um, "input_tokens", 0)
+                usage["output_tokens"] = getattr(um, "output_tokens", 0)
 
-        # Fallback for Gemini/LangChain glitch: sometimes output_tokens is 0 despite having content
         if usage["output_tokens"] == 0 and hasattr(response, "content") and response.content:
-            content_str = str(response.content)
-            # Rough approximation: 1 token ~= 4 characters
-            usage["output_tokens"] = len(content_str) // 4
+            usage["output_tokens"] = len(str(response.content)) // 4
     except Exception:
         pass
     return usage
@@ -219,7 +192,7 @@ async def _run_react_loop(
     # Extract text from the final response
     final_text = _extract_text(response.content) if response else ""
 
-    # Fallback: if Gemini thinking mode returned empty text in the last
+    # Fallback: if LLM returned empty text in the last
     # response, scan backwards through messages for the last substantive
     # AI text (skipping tool-call-only and system messages).
     if not final_text.strip() and len(messages) > 1:
@@ -238,11 +211,9 @@ async def _run_react_loop(
 
 
 def _extract_text(content: Any) -> str:
-    """Extract plain text from Gemini's structured content format.
+    """Extract plain text from LLM structured content format.
 
-    Gemini 2.5 Flash may return content as:
-      - A plain string
-      - A list of dicts with 'type' keys: 'text', 'thinking', etc.
+    Content may be a plain string or a list of typed blocks.
     This normalizes to a plain string, keeping only 'text' blocks.
     """
     if isinstance(content, str):
@@ -267,12 +238,12 @@ def _extract_text(content: Any) -> str:
 async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
     """Geopolitical Analyst agent — assesses macro and geopolitical risks."""
     _emit_log("🌍 Geopolitical Analyst starting...")
-    llm = _get_llm(temperature=0.2, max_output_tokens=4096)
+    llm = _get_llm(temperature=0.2, num_predict=4096)
     llm_with_tools = llm.bind_tools(GEOPOLITICAL_TOOLS)
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,
-        system_prompt=GEOPOLITICAL_ANALYST_PROMPT,
+        system_prompt=get_skill_prompt("geopolitical-analyst"),
         state_messages=state["messages"],
         max_iterations=6,
     )
@@ -293,12 +264,12 @@ async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
 async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
     """Credit Risk Evaluator agent — performs fundamental credit analysis."""
     _emit_log("💳 Credit Evaluator starting...")
-    llm = _get_llm(temperature=0.1, max_output_tokens=4096)
+    llm = _get_llm(temperature=0.1, num_predict=4096)
     llm_with_tools = llm.bind_tools(CREDIT_TOOLS)
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,
-        system_prompt=CREDIT_RISK_EVALUATOR_PROMPT,
+        system_prompt=get_skill_prompt("credit-evaluator"),
         state_messages=state["messages"],
         max_iterations=6,
     )
@@ -319,13 +290,13 @@ async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
 async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
     """Market Synthesizer agent — produces the final integrated risk report."""
     _emit_log("📊 Market Synthesizer starting...")
-    llm = _get_llm(temperature=0.15, max_output_tokens=8192)
+    llm = _get_llm(temperature=0.15, num_predict=8192)
     llm_with_tools = llm.bind_tools(SYNTHESIZER_TOOLS)
 
     # Inject today's date into the prompt
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
-    formatted_prompt = MARKET_SYNTHESIZER_PROMPT.format(today=today)
+    formatted_prompt = get_skill_prompt("market-synthesizer", today=today)
 
     final_content, new_messages, tokens = await _run_react_loop(
         llm_with_tools=llm_with_tools,

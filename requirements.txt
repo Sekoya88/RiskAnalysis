@@ -2,7 +2,7 @@ langgraph
 langchain
 langchain-huggingface==1.2.1
 langchain-core
-langchain-google-genai
+langchain-ollama
 langchain-community
 langchain-chroma
 langgraph-checkpoint-redis
@@ -20,3 +20,5 @@ plotly
 pypdf
 rank_bm25
 requests
+pyyaml
+tomli;python_version<"3.11"

@@ -16,10 +16,10 @@ Hybrid search combines:
 from __future__ import annotations
 
 import glob
-import json
 import os
 import re
 from collections import defaultdict
+from typing import Optional
 
 from langchain_chroma import Chroma
 from langchain_community.retrievers import BM25Retriever
@@ -28,6 +28,7 @@ from langchain_core.tools import tool
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel, Field
 
 # ── Constants ─────────────────────────────────────────────────────────
 CHROMA_PERSIST_DIR = os.path.join(
@@ -46,6 +47,46 @@ BM25_WEIGHT = 0.4
 # RRF constant (standard value from the original RRF paper)
 RRF_K = 60
 
+
+# ── Schemas ──────────────────────────────────────────────────────────
+
+class SearchCorporateDisclosuresInput(BaseModel):
+    query: str = Field(
+        ...,
+        description="Search query describing what information you need.",
+    )
+    num_results: int = Field(
+        default=5,
+        description="Number of relevant documents to retrieve (1-10).",
+    )
+    company_filter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional company name. If provided, prioritizes documents for that "
+            "company while still including broad macro/geopolitical outlooks."
+        ),
+    )
+
+
+class RetrievedDocument(BaseModel):
+    content: str = Field(default="")
+    source: str = Field(default="unknown")
+    company: str = Field(default="unknown")
+    document_type: str = Field(default="unknown")
+    page: str = Field(default="N/A")
+    relevance_score: float = Field(default=0.0)
+    retrieval_method: str = Field(default="hybrid")
+
+
+class SearchCorporateDisclosuresOutput(BaseModel):
+    query: str = Field(default="")
+    num_results: int = Field(default=0)
+    retrieval_method: str = Field(default="hybrid (vector + BM25)")
+    documents: list[RetrievedDocument] = Field(default_factory=list)
+    error: Optional[str] = Field(default=None)
+
+
+# ── Internals ────────────────────────────────────────────────────────
 
 def _get_embeddings():
     """Get HuggingFace embedding model (runs locally, no API key needed)."""
@@ -69,7 +110,7 @@ def _load_local_docs() -> list[Document]:
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
-        chunk_overlap=200,     # Increased from 100 for better context preservation
+        chunk_overlap=200,
     )
 
     for pdf_path in pdf_files:
@@ -77,7 +118,6 @@ def _load_local_docs() -> list[Document]:
             loader = PyPDFLoader(pdf_path)
             docs = loader.load_and_split(text_splitter=text_splitter)
 
-            # Enrich metadata
             filename = os.path.basename(pdf_path)
             company = "Global"
             company_match = re.search(r"([A-Z][a-z]+)", filename)
@@ -92,7 +132,6 @@ def _load_local_docs() -> list[Document]:
                 doc.metadata["source"] = filename
                 doc.metadata["company"] = company
                 doc.metadata["type"] = "pdf_report"
-                # Page number is already set by PyPDFLoader as "page"
 
             all_docs.extend(docs)
             print(f"   ✅ Loaded {filename} ({len(docs)} chunks)")
@@ -112,7 +151,6 @@ def _initialize_vector_store() -> Chroma:
         persist_directory=CHROMA_PERSIST_DIR,
     )
 
-    # Seed if the collection is empty
     existing = vectorstore.get()
     if len(existing.get("ids", [])) == 0:
         docs = _load_local_docs()
@@ -141,7 +179,6 @@ def _get_bm25_docs() -> list[Document]:
     global _bm25_docs
     if _bm25_docs is None:
         store = _get_store()
-        # Retrieve all documents from ChromaDB for BM25 index
         all_data = store.get(include=["documents", "metadatas"])
         docs = []
         for content, metadata in zip(
@@ -162,19 +199,12 @@ def _reciprocal_rank_fusion(
     bm25_weight: float = BM25_WEIGHT,
     k: int = RRF_K,
 ) -> list[tuple[Document, float]]:
-    """Merge two ranked result lists using weighted Reciprocal Rank Fusion.
-
-    RRF score = weight * (1 / (k + rank))
-
-    This gives higher scores to documents ranked higher in either list,
-    and documents found in BOTH lists get a boost from both scores.
-    """
-    # Map: doc content hash → (document, cumulative RRF score)
+    """Merge two ranked result lists using weighted Reciprocal Rank Fusion."""
     scores: dict[str, float] = defaultdict(float)
     doc_map: dict[str, Document] = {}
 
     for rank, doc in enumerate(vector_results):
-        key = doc.page_content[:300]  # Dedup key
+        key = doc.page_content[:300]
         scores[key] += vector_weight * (1.0 / (k + rank + 1))
         doc_map[key] = doc
 
@@ -184,7 +214,6 @@ def _reciprocal_rank_fusion(
         if key not in doc_map:
             doc_map[key] = doc
 
-    # Sort by RRF score descending
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [(doc_map[key], score) for key, score in ranked]
 
@@ -194,22 +223,16 @@ def _hybrid_search(
     num_results: int = 5,
     filter_dict: dict | None = None,
 ) -> list[dict]:
-    """Perform hybrid search combining vector similarity + BM25 keyword matching.
-
-    Uses Reciprocal Rank Fusion (RRF) to merge both result sets.
-    """
+    """Perform hybrid search combining vector similarity + BM25 keyword matching."""
     store = _get_store()
     bm25_docs = _get_bm25_docs()
 
-    # ── Vector search ─────────────────────────────────────────────────
-    fetch_k = min(num_results * 2, 20)  # Fetch more for better fusion
+    fetch_k = min(num_results * 2, 20)
     vector_results = store.similarity_search(
         query=query, k=fetch_k, filter=filter_dict,
     )
 
-    # ── BM25 search ───────────────────────────────────────────────────
     if bm25_docs:
-        # Apply company filter manually (BM25Retriever doesn't support metadata filters)
         if filter_dict:
             allowed_companies = set()
             for cond in filter_dict.get("$or", []):
@@ -233,7 +256,6 @@ def _hybrid_search(
     else:
         bm25_results = []
 
-    # ── Reciprocal Rank Fusion ────────────────────────────────────────
     if bm25_results:
         fused = _reciprocal_rank_fusion(vector_results, bm25_results)
         retrieval_method = "hybrid (vector + BM25)"
@@ -241,7 +263,6 @@ def _hybrid_search(
         fused = [(doc, 1.0 - i * 0.05) for i, doc in enumerate(vector_results)]
         retrieval_method = "vector"
 
-    # ── Format results ────────────────────────────────────────────────
     documents = []
     for doc, score in fused[:num_results]:
         documents.append({
@@ -249,7 +270,7 @@ def _hybrid_search(
             "source": doc.metadata.get("source", "unknown"),
             "company": doc.metadata.get("company", "unknown"),
             "document_type": doc.metadata.get("type", "unknown"),
-            "page": doc.metadata.get("page", "N/A"),
+            "page": str(doc.metadata.get("page", "N/A")),
             "relevance_score": round(score, 4),
             "retrieval_method": retrieval_method,
         })
@@ -257,7 +278,9 @@ def _hybrid_search(
     return documents
 
 
-@tool
+# ── Tool ─────────────────────────────────────────────────────────────
+
+@tool(args_schema=SearchCorporateDisclosuresInput)
 def search_corporate_disclosures(
     query: str,
     num_results: int = 5,
@@ -271,21 +294,15 @@ def search_corporate_disclosures(
     Fitch, Apollo Outlooks).
 
     The hybrid search combines:
-    - Semantic similarity (understands meaning, e.g. "currency risk" ≈ "FX exposure")
+    - Semantic similarity (understands meaning, e.g. "currency risk" = "FX exposure")
     - Keyword matching (finds exact terms like "Altman Z-Score", "EBITDA", tickers)
 
-    Use this tool to ground your analysis in factual data and reduce
-    hallucination risk.
+    Use this tool to ground your analysis in factual data and reduce hallucination risk.
 
     Args:
         query: Search query describing what information you need.
         num_results: Number of relevant documents to retrieve (1-10).
-        company_filter: Optional company name. If provided, the search will
-            prioritize documents for that company while STILL including
-            broad macro/geopolitical outlooks.
-
-    Returns:
-        JSON string with relevant document excerpts and metadata.
+        company_filter: Optional company name to prioritize in search results.
     """
     try:
         filter_dict = None
@@ -306,15 +323,18 @@ def search_corporate_disclosures(
             filter_dict=filter_dict,
         )
 
-        return json.dumps({
-            "query": query,
-            "num_results": len(documents),
-            "retrieval_method": "hybrid (vector + BM25)",
-            "documents": documents,
-        }, indent=2, default=str)
+        output = SearchCorporateDisclosuresOutput(
+            query=query,
+            num_results=len(documents),
+            documents=[RetrievedDocument(**d) for d in documents],
+        )
+        return output.model_dump_json(indent=2)
 
     except Exception as e:
-        return json.dumps({"error": f"RAG search failed: {str(e)}"})
+        output = SearchCorporateDisclosuresOutput(
+            query=query, error=f"RAG search failed: {str(e)}"
+        )
+        return output.model_dump_json()
 
 
 def get_rag_tool():
