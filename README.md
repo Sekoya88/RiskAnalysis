@@ -9,10 +9,22 @@ Evaluate geopolitical, credit, and market risks using an AI multi-agent system.
 
 This project is an advanced multi-agent risk assessment pipeline built with **LangGraph**. It replaces traditional scripts with specialized AI agents capable of reasoning, researching, and synthesizing financial risk reports.
 
-It was originally built with Google Gemini 2.5 Flash API, but this specific branch (`feat/chat-anthropic` - despite the name) has been completely refactored to run **100% locally using Ollama**.
+You can run this framework entirely locally using **Ollama** or switch instantly to Google's **Gemini 2.5 Flash** via API for faster, production-grade reasoning.
 
-### Why it was changed to Ollama
-The previous architecture used `langchain-google-genai` and required an active API key. This version uses `langchain-ollama` and allows you to run robust risk analysis privately using open-weight models without any external API dependencies. 
+## Local vs API Models
+
+The framework supports seamless switching between local open-weights and cloud APIs.
+You can select your preferred model directly from the Streamlit UI sidebar:
+
+- **Local Models (Ollama)**
+  - `qwen3.5` (9B parameters - Fast and excellent at tool use)
+  - `lfm2` (24B parameters - Strong reasoning and synthesis)
+  - *No API key required. Runs 100% locally and privately.*
+- **Cloud Models (Google API)**
+  - `gemini-2.5-flash` (Google GenAI)
+  - *Requires a `GOOGLE_API_KEY` in your `.env` file or pasted directly into the UI.*
+
+If you use Gemini, the application dynamically switches its backend LangChain driver to `langchain-google-genai` instead of `langchain-ollama`.
 
 ## Architecture & Multi-Agent Flow
 
@@ -23,17 +35,6 @@ The system runs a LangGraph state machine directed by a **Supervisor Agent**.
    - **Credit Risk Evaluator** runs second to fetch market data and assess financial health.
    - **Market Synthesizer** runs third to read the other two reports and produce the final scoring.
 2. **Self-Correction:** After all three agents report back, the Supervisor invokes a lightweight LLM call to evaluate the final synthesized data. If the output lacks depth, the Supervisor can re-route the flow back to a specific agent.
-
-## Local LLMs
-
-The framework relies entirely on **Ollama** running locally.
-Models are configured via `config/deepagents.toml`. 
-
-Supported local models out of the box:
-- `qwen3.5` (9B parameters - Fast and excellent at tool use)
-- `lfm2` (24B parameters - Strong reasoning and synthesis)
-
-Ensure Ollama is running and you have pulled these models (`ollama run qwen3.5`).
 
 ## The Skills System
 
@@ -79,13 +80,13 @@ Install Python dependencies:
 pip install -r requirements.txt
 ```
 
-Start the Redis backend (required for LangGraph checkpointing):
+*(Optional)* Start the Redis backend (required for persistent LangGraph checkpointing):
 
 ```sh
 docker compose up redis -d
 ```
 
-Ensure Ollama is running locally and pull the default model:
+*(Optional)* Ensure Ollama is running locally and pull the default model:
 
 ```sh
 ollama pull qwen3.5
@@ -104,6 +105,19 @@ Or manually:
 ```sh
 streamlit run app.py
 ```
+
+To use Gemini, select it from the sidebar dropdown and either:
+- Paste your Google API key in the password field, or
+- Set `GOOGLE_API_KEY` in your `.env` file (see `.env.example`)
+
+## Environment Variables
+
+| Variable | Required for | Description |
+|----------|--------------|-------------|
+| `GOOGLE_API_KEY` | Gemini | Your Google AI API key |
+| `OLLAMA_MODEL` | Ollama | Model name (e.g. `qwen3.5`, `lfm2`) |
+| `OLLAMA_BASE_URL` | Ollama | Base URL (default: `http://localhost:11434`) |
+| `REDIS_URL` | Redis checkpointing | Redis connection string (default: `redis://localhost:6379`) |
 
 ## License
 

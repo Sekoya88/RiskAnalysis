@@ -17,6 +17,11 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
+
 from loguru import logger
 
 from src.agents.skills import get_skill_prompt
@@ -30,9 +35,23 @@ from src.utils import retry_with_backoff
 load_dotenv()
 
 # ── LLM Configuration ────────────────────────────────────────────────
-def _get_llm(temperature: float | None = None, num_predict: int | None = None) -> ChatOllama:
-    """Instantiate a local LLM via Ollama with per-model config from deepagents.toml."""
+def _get_llm(temperature: float | None = None, num_predict: int | None = None) -> Any:
+    """Instantiate a local LLM via Ollama or Google Gemini."""
     model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+    
+    if model.startswith("gemini"):
+        if not ChatGoogleGenerativeAI:
+            raise ImportError("langchain-google-genai is not installed. Please install it to use Gemini models.")
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is required to use Gemini models.")
+        return ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=api_key,
+            temperature=temperature if temperature is not None else 0.1,
+            max_output_tokens=num_predict if num_predict is not None else 8192,
+        )
+    
     cfg = get_model_config(model)
     return ChatOllama(
         model=model,
@@ -101,15 +120,28 @@ def _extract_token_usage(response) -> dict:
     """
     usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
     try:
-        um = getattr(response, "usage_metadata", None)
-        if um:
-            if isinstance(um, dict):
-                usage["input_tokens"] = um.get("input_tokens", 0)
-                usage["output_tokens"] = um.get("output_tokens", 0)
-                usage["cached_tokens"] = um.get("cache_read_input_tokens", 0) or um.get("cached_tokens", 0)
+        um = None
+        # Support for both ChatOllama and ChatGoogleGenerativeAI
+        raw_um = getattr(response, "usage_metadata", None)
+        
+        if raw_um:
+            if isinstance(raw_um, dict):
+                um = raw_um
             else:
-                usage["input_tokens"] = getattr(um, "input_tokens", 0)
-                usage["output_tokens"] = getattr(um, "output_tokens", 0)
+                um = {
+                    "input_tokens": getattr(raw_um, "input_tokens", 0) or getattr(raw_um, "prompt_token_count", 0),
+                    "output_tokens": getattr(raw_um, "output_tokens", 0) or getattr(raw_um, "candidates_token_count", 0),
+                    "cached_tokens": getattr(raw_um, "cache_read_input_tokens", 0) or getattr(raw_um, "cached_content_token_count", 0),
+                }
+                
+        if not um:
+            meta = getattr(response, "response_metadata", {}) or {}
+            um = meta.get("usage_metadata", {})
+            
+        if um:
+            usage["input_tokens"] = um.get("input_tokens", 0) or um.get("prompt_token_count", 0)
+            usage["output_tokens"] = um.get("output_tokens", 0) or um.get("candidates_token_count", 0)
+            usage["cached_tokens"] = um.get("cache_read_input_tokens", 0) or um.get("cached_content_token_count", 0)
 
         if usage["output_tokens"] == 0 and hasattr(response, "content") and response.content:
             usage["output_tokens"] = len(str(response.content)) // 4

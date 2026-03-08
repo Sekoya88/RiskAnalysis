@@ -654,7 +654,7 @@ st.markdown("""
 st.markdown("""
 <div class="app-header">
     <h1>Risk Assessment Framework</h1>
-    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Ollama (Local LLM)</p>
+    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Ollama / Gemini</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -714,10 +714,22 @@ with st.sidebar:
     OLLAMA_MODELS = {
         "qwen3.5 (9B — fast, good tool-use)": "qwen3.5",
         "lfm2 (24B — strong reasoning)": "lfm2",
+        "gemini-2.5-flash (Google API)": "gemini-2.5-flash",
     }
     model_label = st.selectbox("LLM Model", list(OLLAMA_MODELS.keys()))
     selected_model = OLLAMA_MODELS[model_label]
     os.environ["OLLAMA_MODEL"] = selected_model
+    
+    if selected_model.startswith("gemini"):
+        api_key = st.text_input("Google API Key", type="password", placeholder="Or set GOOGLE_API_KEY in .env")
+        if api_key:
+            os.environ["GOOGLE_API_KEY"] = api_key
+        else:
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+        if not api_key:
+            st.warning("API Key required for Gemini.")
+    else:
+        api_key = "ok"
 
     use_redis = st.toggle("Redis (persistence)", value=False)
     if use_redis:
@@ -734,7 +746,7 @@ with st.sidebar:
     run_btn = st.button(
         "Run Analysis",
         type="primary",
-        disabled=st.session_state.running or not query.strip(),
+        disabled=st.session_state.running or not query.strip() or (selected_model.startswith("gemini") and not api_key),
     )
 
     st.markdown("---")

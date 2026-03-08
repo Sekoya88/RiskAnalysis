@@ -3,6 +3,7 @@ langchain
 langchain-huggingface==1.2.1
 langchain-core
 langchain-ollama
+langchain-google-genai
 langchain-community
 langchain-chroma
 langgraph-checkpoint-redis

@@ -15,6 +15,10 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
 from langchain_ollama import ChatOllama
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
 from loguru import logger
 
 from src.agents.skills import load_skill
@@ -75,12 +79,23 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     # massive amounts of tokens while preserving deep critical thinking.
     
     model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
-    llm = ChatOllama(
-        model=model,
-        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        temperature=0.0,
-        num_predict=512,
-    )
+    
+    if model.startswith("gemini"):
+        if not ChatGoogleGenerativeAI:
+            raise ImportError("langchain-google-genai is not installed.")
+        llm = ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0.0,
+            max_output_tokens=512,
+        )
+    else:
+        llm = ChatOllama(
+            model=model,
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            temperature=0.0,
+            num_predict=512,
+        )
 
     # Compile the reports for the supervisor to read
     reports_context = "\n\n".join(
