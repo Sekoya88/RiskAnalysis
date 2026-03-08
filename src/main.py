@@ -23,6 +23,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
+from loguru import logger
 
 load_dotenv()
 
@@ -40,11 +41,11 @@ DEFAULT_QUERIES = [
 
 def _print_banner():
     """Print startup banner."""
-    print("\n" + "═" * 70)
-    print("  🌐 AGENTIC RISK ASSESSMENT FRAMEWORK")
-    print("  Multi-Agent LLM System for Credit & Geopolitical Risk")
-    print("  Stack: LangGraph • Ollama (Local LLM) • ChromaDB • Redis")
-    print("═" * 70 + "\n")
+    logger.info("═" * 70)
+    logger.info("  🌐 AGENTIC RISK ASSESSMENT FRAMEWORK")
+    logger.info("  Multi-Agent LLM System for Credit & Geopolitical Risk")
+    logger.info("  Stack: LangGraph • Ollama (Local LLM) • ChromaDB • Redis")
+    logger.info("═" * 70)
 
 
 async def run_analysis(
@@ -91,20 +92,20 @@ async def run_analysis(
             redis_cm = get_redis_checkpointer()
         except ImportError:
             redis_cm = None
-            print("⚠️  langgraph-checkpoint-redis not installed. Using in-memory state.")
-            print("   Install with: pip install langgraph-checkpoint-redis")
+            logger.warning("langgraph-checkpoint-redis not installed. Using in-memory state.")
+            logger.warning("Install with: pip install langgraph-checkpoint-redis")
         except Exception as e:
             redis_cm = None
             err_msg = str(e)
             if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
-                print(
-                    f"⚠️  Redis is running but missing the RedisSearch module.\n"
-                    f"   langgraph-checkpoint-redis requires redis-stack-server.\n"
-                    f"   Fix: docker compose up redis -d\n"
-                    f"   Falling back to in-memory state."
+                logger.warning(
+                    "Redis is running but missing the RedisSearch module.\n"
+                    "langgraph-checkpoint-redis requires redis-stack-server.\n"
+                    "Fix: docker compose up redis -d\n"
+                    "Falling back to in-memory state."
                 )
             else:
-                print(f"⚠️  Redis connection failed ({e}). Falling back to in-memory state.")
+                logger.warning(f"Redis connection failed ({e}). Falling back to in-memory state.")
     else:
         redis_cm = None
 
@@ -115,24 +116,23 @@ async def run_analysis(
                 redis_ok = True
                 graph = build_graph(checkpointer=checkpointer)
                 backend_label = "Redis"
-                print(f"📋 Query: {query[:100]}...")
-                print(f"🔑 Thread ID: {thread_id}")
-                print(f"💾 State Backend: {backend_label}")
-                print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                print("-" * 70)
+                logger.info(f"Query: {query[:100]}...")
+                logger.info(f"Thread ID: {thread_id}")
+                logger.info(f"State Backend: {backend_label}")
+                logger.info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
                 return await _execute_graph(graph, initial_state, config)
         except Exception as e:
             err_msg = str(e)
             if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
-                print(
-                    f"⚠️  Redis is running but missing the RedisSearch module.\n"
-                    f"   langgraph-checkpoint-redis requires redis-stack-server.\n"
-                    f"   Fix: docker compose up redis -d\n"
-                    f"   Falling back to in-memory state."
+                logger.warning(
+                    "Redis is running but missing the RedisSearch module.\n"
+                    "langgraph-checkpoint-redis requires redis-stack-server.\n"
+                    "Fix: docker compose up redis -d\n"
+                    "Falling back to in-memory state."
                 )
             else:
-                print(f"⚠️  Redis connection failed ({e}). Falling back to in-memory state.")
+                logger.warning(f"Redis connection failed ({e}). Falling back to in-memory state.")
             # Fall through to in-memory path below
 
     # ── In-memory path ────────────────────────────────────────────
@@ -142,11 +142,10 @@ async def run_analysis(
     backend_label = "In-Memory"
     if use_redis:
         backend_label = "In-Memory (Redis failed — see above)"
-    print(f"📋 Query: {query[:100]}...")
-    print(f"🔑 Thread ID: {thread_id}")
-    print(f"💾 State Backend: {backend_label}")
-    print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("-" * 70)
+    logger.info(f"Query: {query[:100]}...")
+    logger.info(f"Thread ID: {thread_id}")
+    logger.info(f"State Backend: {backend_label}")
+    logger.info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     return await _execute_graph(graph, initial_state, config)
 
@@ -161,22 +160,22 @@ async def _execute_graph(graph, initial_state, config):
     async for event in graph.astream(initial_state, config=config):
         for node_name, node_output in event.items():
             elapsed = time.time() - start_time
-            print(f"\n⚡ [{elapsed:.1f}s] Node: {node_name}")
+            logger.info(f"[{elapsed:.1f}s] Node: {node_name}")
 
             if "messages" in node_output:
                 for msg in node_output["messages"]:
                     if hasattr(msg, "name") and msg.name:
-                        print(f"   Agent: {msg.name}")
+                        logger.debug(f"Agent: {msg.name}")
                     content_preview = msg.content[:200] if msg.content else ""
-                    print(f"   Output: {content_preview}...")
+                    logger.debug(f"Output: {content_preview}...")
 
             if "next_agent" in node_output:
-                print(f"   ➡️  Next: {node_output['next_agent']}")
+                logger.info(f"Next: {node_output['next_agent']}")
 
     elapsed = time.time() - start_time
-    print("\n" + "═" * 70)
-    print(f"✅ Analysis completed in {elapsed:.1f} seconds")
-    print("═" * 70)
+    logger.info("═" * 70)
+    logger.info(f"Analysis completed in {elapsed:.1f} seconds")
+    logger.info("═" * 70)
 
     # ── Extract final report + sources ────────────────────────────────
     final_report = ""
@@ -279,15 +278,14 @@ async def main():
 
     query = custom_query or DEFAULT_QUERIES[0]
 
-    print("🚀 Initializing agents...\n")
-
+    logger.info("Initializing agents...")
     report, sources, token_usage = await run_analysis(query=query, use_redis=use_redis)
 
-    print("\n" + "═" * 70)
-    print("  📊 FINAL INTEGRATED RISK REPORT")
-    print("═" * 70)
-    print(report)
-    print("\n" + "═" * 70)
+    logger.info("═" * 70)
+    logger.info("  📊 FINAL INTEGRATED RISK REPORT")
+    logger.info("═" * 70)
+    logger.info(report)
+    logger.info("═" * 70)
 
     # Print token usage summary
     if token_usage:
@@ -297,12 +295,12 @@ async def main():
         cost_in = total_in * 0.30 / 1_000_000
         cost_out = total_out * 2.50 / 1_000_000
         saved = total_cached * 0.27 / 1_000_000  # 90% of input price
-        print(f"\n  📊 TOKEN USAGE")
+        logger.info("  📊 TOKEN USAGE")
         for t in token_usage:
-            print(f"     {t['agent']:25s} | {t['input']:,} in | {t['output']:,} out | {t['cached']:,} cached")
-        print(f"     {'TOTAL':25s} | {total_in:,} in | {total_out:,} out | {total_cached:,} cached")
-        print(f"  💰 ESTIMATED COST: ${cost_in + cost_out:.4f} (saved ${saved:.4f} via caching)")
-        print("═" * 70)
+            logger.info(f"     {t['agent']:25s} | {t['input']:,} in | {t['output']:,} out | {t.get('cached', 0):,} cached")
+        logger.info(f"     {'TOTAL':25s} | {total_in:,} in | {total_out:,} out | {total_cached:,} cached")
+        logger.info(f"  💰 ESTIMATED COST: ${cost_in + cost_out:.4f} (saved ${saved:.4f} via caching)")
+        logger.info("═" * 70)
 
     # Save report to file
     output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
@@ -320,7 +318,7 @@ async def main():
         f.write(json.dumps({"sources": sources}, indent=2))
         f.write("\nINTERNAL_METADATA_END -->\n")
 
-    print(f"\n💾 Report saved to: {output_path}")
+    logger.info(f"Report saved to: {output_path}")
 
 
 if __name__ == "__main__":

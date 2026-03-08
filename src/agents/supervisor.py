@@ -15,6 +15,7 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
 from langchain_ollama import ChatOllama
+from loguru import logger
 
 from src.agents.skills import load_skill
 from src.state.schema import AgentState
@@ -55,7 +56,7 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     # Safety: prevent infinite loops (max 10 agent invocations)
     iteration_count = state.get("iteration_count", 0)
     if iteration_count >= 10:
-        print("   🛑 Max iterations reached — finishing.")
+        logger.warning("Max iterations reached — finishing.")
         return {"next_agent": "FINISH"}
 
     # Determine which agents have already reported
@@ -65,7 +66,7 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     # If not all required agents have reported, route to the next one
     for agent in REQUIRED_PIPELINE:
         if agent not in agents_reported:
-            print(f"   🧠 Supervisor: routing to {agent} (pipeline order)")
+            logger.info(f"Supervisor: routing to {agent} (pipeline order)")
             return {"next_agent": agent}
 
     # ── All agents have reported → evaluate for self-correction ─────
@@ -100,7 +101,7 @@ Here are the final synthesized reports from your team:
 
     messages = [SystemMessage(content=system_msg)]
 
-    print("   🧠 Supervisor evaluating completion based on final reports...")
+    logger.info("Supervisor evaluating completion based on final reports...")
     
     try:
         response = await retry_with_backoff(
@@ -111,7 +112,7 @@ Here are the final synthesized reports from your team:
         )
         content = _extract_text(response.content).strip()
     except Exception as e:
-        print(f"   ⚠️ Supervisor evaluation failed ({e}). Defaulting to FINISH.")
+        logger.error(f"Supervisor evaluation failed ({e}). Defaulting to FINISH.")
         return {"next_agent": "FINISH"}
 
     # Parse the routing decision
@@ -123,12 +124,12 @@ Here are the final synthesized reports from your team:
             candidate = decision.get("next", "FINISH")
             if candidate in AGENT_OPTIONS:
                 next_agent = candidate
-            print(f"   ➡️  Supervisor reasoning: {decision.get('reasoning', 'None')}")
+            logger.debug(f"Supervisor reasoning: {decision.get('reasoning', 'None')}")
     except (json.JSONDecodeError, ValueError):
         for option in AGENT_OPTIONS:
             if option.lower() in content.lower():
                 next_agent = option
                 break
 
-    print(f"   ➡️  Supervisor decision: {next_agent}")
+    logger.info(f"Supervisor decision: {next_agent}")
     return {"next_agent": next_agent}

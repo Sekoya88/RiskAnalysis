@@ -17,6 +17,7 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
+from loguru import logger
 
 from src.agents.skills import get_skill_prompt
 from src.config.providers import get_model_config
@@ -129,13 +130,13 @@ def set_log_queue(q: queue.Queue):
 
 
 def _emit_log(message: str):
-    """Push a log message to the shared queue (if set)."""
+    """Push a log message to the shared queue (if set) and use logger.info."""
     if _log_queue is not None:
         try:
             _log_queue.put_nowait(message)
         except queue.Full:
             pass
-    print(f"   {message}")
+    logger.info(message)
 
 
 async def _run_react_loop(

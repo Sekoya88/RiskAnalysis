@@ -12,6 +12,7 @@ asyncio
 ddgs==9.11.1
 yfinance==0.2.54
 pydantic==2.10.6
+loguru
 python-dotenv
 chromadb
 sentence-transformers
