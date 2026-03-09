@@ -1,19 +1,18 @@
 """
 Retry utilities — Exponential backoff with jitter for API rate limits.
 
-Handles Gemini free-tier quota constraints by implementing intelligent
+Handles API rate-limit constraints by implementing intelligent
 retry strategies with configurable delays.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import random
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 T = TypeVar("T")
 
@@ -70,10 +69,6 @@ async def retry_with_backoff(
             logger.warning(
                 f"Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). "
                 f"Retrying in {delay:.1f}s..."
-            )
-            print(
-                f"   ⏳ Rate limit hit — retrying in {delay:.1f}s "
-                f"(attempt {attempt + 1}/{max_retries + 1})"
             )
             await asyncio.sleep(delay)
 

@@ -1,402 +1,195 @@
-# Agentic LLM Framework for Credit & Geopolitical Risk Assessment
+# Agentic Risk Assessment Framework
 
-[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://python.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.0-green.svg)](https://github.com/langchain-ai/langgraph)
-[![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-orange.svg)](https://ai.google.dev/)
-[![Redis](https://img.shields.io/badge/Redis-7-red.svg)](https://redis.io)
+Evaluate geopolitical, credit, and market risks using an AI multi-agent system.
 
-A modular **multi-agent framework** leveraging **LangGraph** and the **ReAct reasoning pattern** to orchestrate LLMs for complex, multi-step financial risk evaluations.
+[![Build Status](https://github.com/user/repo/workflows/build/badge.svg)](https://github.com/user/repo/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+## Overview
+
+This project is an advanced multi-agent risk assessment pipeline built with **LangGraph**. It replaces traditional scripts with specialized AI agents capable of reasoning, researching, and synthesizing financial risk reports.
+
+You can run this framework entirely locally using **Ollama** or switch instantly to Google's **Gemini 2.5 Flash** via API for faster, production-grade reasoning.
+
+## Local vs API Models
+
+The framework supports seamless switching between local open-weights and cloud APIs.
+You can select your preferred model directly from the Streamlit UI sidebar:
+
+- **Local Models (Ollama)**
+  - `qwen3.5` (9B parameters - Fast and excellent at tool use)
+  - `lfm2` (24B parameters - Strong reasoning and synthesis)
+  - *No API key required. Runs 100% locally and privately.*
+- **Cloud Models (Google API)**
+  - `gemini-2.5-flash` (Google GenAI)
+  - *Requires a `GOOGLE_API_KEY` in your `.env` file or pasted directly into the UI.*
+
+If you use Gemini, the application dynamically switches its backend LangChain driver to `langchain-google-genai` instead of `langchain-ollama`.
+
+## Architecture (Clean DDD)
+
+The codebase follows a **Domain-Driven Design** with clear separation of concerns:
+
+```text
+src/
+├── domain/                 # Pure business logic, zero external deps
+│   ├── models/             # RiskReport, Scenario, Source (value objects)
+│   ├── ports/              # Protocol interfaces (LLM, Embedding, VectorStore, etc.)
+│   └── services/           # RL scoring, report parsing
+│
+├── application/            # Orchestration layer
+│   ├── agents/             # Geopolitical, Credit, Synthesizer (ReAct loop)
+│   ├── supervisor.py       # Pipeline routing + self-correction
+│   ├── graph.py            # LangGraph StateGraph builder
+│   └── dto.py              # AgentState TypedDict
+│
+├── infrastructure/         # Concrete adapter implementations
+│   ├── llm/                # OllamaLLMAdapter, GeminiLLMAdapter, factory
+│   ├── embeddings/         # OllamaEmbeddingAdapter (embeddinggemma), HuggingFace fallback
+│   ├── vector_store/       # ChromaVectorStoreAdapter
+│   ├── retrieval/          # HybridRetriever (RRF fusion)
+│   ├── data_sources/       # YahooFinanceAdapter, DuckDuckGoAdapter
+│   ├── persistence/        # SQLite (reports + RL feedback), Redis, file memory
+│   ├── skills/             # SKILL.md loader (YAML frontmatter + Markdown)
+│   └── config/             # TOML config loader (deepagents.toml)
+│
+├── container.py            # Dependency injection (composition root)
+└── main.py                 # CLI entrypoint
+```
+
+Every infrastructure component is hidden behind a **Port** (Python Protocol). Swapping Ollama for OpenAI, ChromaDB for Pinecone, or SQLite for Postgres requires only a new adapter -- no domain or application code changes.
+
+## Multi-Agent Flow
+
+The system runs a LangGraph state machine directed by a **Supervisor Agent**.
+
+1. **Deterministic Routing:** The Supervisor first enforces a strict pipeline.
+   - **Geopolitical Analyst** runs first to search global news and assess macro risks.
+   - **Credit Risk Evaluator** runs second to fetch market data and assess financial health.
+   - **Market Synthesizer** runs third to read the other two reports and produce the final scoring.
+2. **Self-Correction:** After all three agents report back, the Supervisor invokes a lightweight LLM call to evaluate the final synthesized data. If the output lacks depth, the Supervisor can re-route the flow back to a specific agent.
+
+## The Skills System
+
+Agents do not use hardcoded prompts hidden in Python strings. Instead, their entire behavior, persona, and system prompt are defined in Markdown files inside the `skills/` directory.
+
+- `skills/geopolitical-analyst/SKILL.md`
+- `skills/credit-evaluator/SKILL.md`
+- `skills/market-synthesizer/SKILL.md`
+- `skills/supervisor/SKILL.md`
+
+## Tools & Integrations
+
+Each agent accesses specific tools equipped with strict Pydantic schemas.
+
+- **Market Data:** Fetched in real-time via Yahoo Finance (`yfinance`).
+- **News/Web Search:** Aggregated using DuckDuckGo (`ddgs`).
+- **Hybrid RAG:** A custom retrieval pipeline using ChromaDB (semantic search) and BM25 (keyword search). The results are fused using Reciprocal Rank Fusion (RRF). Seed PDFs are located in `data/docs/`.
+
+## Embeddings
+
+Vector embeddings for the RAG pipeline run locally via **Ollama** using the [`embeddinggemma`](https://ollama.com/library/embeddinggemma) model (300M params, Google Gemma 3, 100+ languages).
+
+This eliminates the need for `sentence-transformers` and `torch` (~2GB of dependencies). The embedding model runs in the same Ollama instance as the LLM.
+
+To switch back to HuggingFace `all-MiniLM-L6-v2`, edit `config/deepagents.toml`:
+
+```toml
+[embeddings]
+default = "huggingface"  # instead of "ollama"
+```
+
+## Persistence & RL Feedback Loop
+
+- **State Checkpointing:** The LangGraph state is continuously saved to **Redis** via `langgraph-checkpoint-redis`. This allows for long-running workflows to be paused, resumed, or debugged.
+- **Reinforcement Learning (RL):** A local SQLite database (`data/risk_history.db`) acts as the ML Feedback Loop backend. In the Streamlit UI, users can vote "Useful" or "Poor" on the news sources the AI used. These votes adjust the `rl_weight` of those sources dynamically. Combined with a time decay algorithm (newer articles get a bonus), the system continuously learns which sources yield the best risk reports.
+
+## Configuration
+
+All infrastructure is configured via `config/deepagents.toml`:
+
+```toml
+[models.providers.ollama]
+models = ["qwen3.5", "lfm2"]
+
+[embeddings]
+default = "ollama"                    # or "huggingface"
+
+[embeddings.providers.ollama]
+model = "embeddinggemma"
+
+[vector_store]
+provider = "chroma"
+persist_directory = "data/chroma_db"
+
+[retrieval]
+strategy = "hybrid"
+vector_weight = 0.6
+bm25_weight = 0.4
+```
+
+## Frontend UI
+
+The UI is built with Streamlit (`app.py`). It features:
+- A professional, high-contrast monochrome design.
+- Animated pill-shaped buttons for the RL feedback loop.
+- Plotly radar charts for risk breakdown (Geo, Credit, Market, ESG).
+- A "Score Over Time" historical line chart tracking the risk of an entity across multiple reports.
+
+## Logging
+
+All pipeline events, LLM tool calls, and execution steps are cleanly logged using `loguru`.
 
 ---
 
-## Architecture
+## Installation
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    SUPERVISOR (Router)                       │
-│      Deterministic pipeline + LLM-based self-correction     │
-│           Gemini 2.5 Flash · JSON Structured Output         │
-└──────┬──────────────┬───────────────┬───────────────────────┘
-       │              │               │
-       ▼              ▼               ▼
-┌──────────────┐ ┌───────────────┐ ┌──────────────────┐
-│ Geopolitical │ │ Credit Risk   │ │ Market           │
-│ Analyst      │ │ Evaluator     │ │ Synthesizer      │
-│              │ │               │ │                  │
-│ • DuckDuckGo │ │ • Yahoo Fin.  │ │ • Cross-ref      │
-│ • News APIs  │ │ • RAG(Hybrid) │ │ • Risk Scoring   │
-│ • RAG(Hybrid)│ │ • Web Search  │ │ • Final Report   │
-└──────────────┘ └───────────────┘ └──────────────────┘
-       │              │               │
-       └──────────────┴───────────────┘
-                      │
-              ┌───────▼────────┐     ┌──────────────┐
-              │   ChromaDB     │     │    Redis      │
-              │  Vector Store  │     │  Checkpoint   │
-              │ + BM25 (Hybrid)│     └──────────────┘
-              └────────────────┘
+Install Python dependencies:
+
+```sh
+pip install -r requirements.txt
 ```
 
-## Stack
+*(Optional)* Start the Redis backend (required for persistent LangGraph checkpointing):
 
-| Component | Technology |
-| :--- | :--- |
-| **Orchestration** | LangGraph 1.0 (StateGraph, conditional edges, `add_messages` reducer) |
-| **LLM** | Google Gemini 2.5 Flash via `langchain-google-genai` |
-| **Reasoning Pattern** | ReAct (Thought → Action → Observation loop, max 6 iterations) |
-| **State Management** | Redis 7 via `langgraph-checkpoint-redis` (fallback: `MemorySaver`) + SQLite (`risk_history.db`) |
-| **Vector DB / RAG** | ChromaDB + HuggingFace `all-MiniLM-L6-v2` embeddings + BM25 keyword search |
-| **Hybrid Retrieval** | Reciprocal Rank Fusion (60% semantic / 40% BM25) |
-| **Market Data** | Yahoo Finance API (`yfinance`) — live prices, ratios, balance sheet |
-| **News / Search** | DuckDuckGo Search API (`ddgs`) — news + web search |
-| **PDF Ingestion** | `pypdf` — loads PDFs from `data/docs/` into ChromaDB at startup |
-| **Web Interface** | Streamlit + Plotly (radar charts, risk visualisation, historical graphs) |
-| **ML Feedback Loop** | Reinforcement Learning using SQLite to weight news sources with time decay |
-| **Containerization** | Docker + Docker Compose |
-| **Observability** | LangSmith (tracing LLM calls) + per-agent token tracking |
-| **Async Runtime** | Python `asyncio` |
-
----
-
-## Comment ça fonctionne — Explication technique
-
-### 1. Le pipeline d'agents
-
-Quand tu lances une requête (ex: "Évaluer le risque de NVIDIA"), voici ce qui se passe :
-
-```text
-Ta requête
-    │
-    ▼
-[SUPERVISOR] → Pipeline déterministe : route vers le premier agent non exécuté
-    │
-    ▼
-[GEOPOLITICAL ANALYST]
-    │ Boucle ReAct (max 6 itérations) :
-    │   1. "Je dois chercher les tensions US-Chine sur les puces IA"
-    │   2. Appelle search_geopolitical_news("NVIDIA export controls China")
-    │   3. Lit les résultats, réfléchit encore
-    │   4. Appelle search_corporate_disclosures("NVIDIA geopolitical risk")
-    │   5. Synthétise son analyse géopolitique
-    │   → Résultat stocké dans risk_signals[] + messages prunés
-    │
-    ▼
-[SUPERVISOR] → Vérifie risk_signals : credit_evaluator n'a pas encore reporté
-    │
-    ▼
-[CREDIT RISK EVALUATOR]
-    │   1. Appelle get_market_data("NVDA") → prix, P/E, dette, ratios live
-    │   2. Appelle search_corporate_disclosures("NVIDIA financial health")
-    │   3. Calcule Z-Score, analyse les ratios, notation crédit interne
-    │   4. Produit son évaluation crédit
-    │
-    ▼
-[SUPERVISOR] → market_synthesizer n'a pas encore reporté
-    │
-    ▼
-[MARKET SYNTHESIZER]
-    │   Lit les analyses des 2 agents via risk_signals (pas les messages bruts)
-    │   Croise les données, produit le rapport final
-    │   Score de risque intégré (0-100) + sous-scores + scénarios
-    │
-    ▼
-[SUPERVISOR] → Évaluation qualité par LLM (self-correction)
-    │   Lit UNIQUEMENT les risk_signals (~2.5K tokens vs ~50K)
-    │   Si OK → FINISH
-    │   Si lacune → re-route vers l'agent concerné
-    │
-    ▼
-Rapport final sauvegardé dans output/risk_report_YYYYMMDD_HHMMSS.md
+```sh
+docker compose up redis -d
 ```
 
-### 2. Le Supervisor — Routage hybride
+Pull the required Ollama models:
 
-Le supervisor combine **deux stratégies** de routage (code dans `src/agents/supervisor.py`) :
-
-1. **Routage déterministe** — Tant que les 3 agents n'ont pas tous reporté, le supervisor suit l'ordre fixe : `geopolitical_analyst` → `credit_evaluator` → `market_synthesizer`. Ce routage ne fait **aucun appel LLM** et ne consomme aucun token.
-
-2. **Self-correction par LLM** — Une fois tous les agents passés, le supervisor évalue la qualité en lisant `risk_signals[]` (les synthèses, pas les messages bruts). S'il détecte une lacune, il peut re-router vers un agent. Sinon il envoie `FINISH`.
-
-Le guard `iteration_count >= 10` empêche toute boucle infinie.
-
-### 3. Le pattern ReAct — Comment un agent "réfléchit"
-
-Chaque agent utilise le pattern **ReAct** (Reasoning + Acting). Concrètement, le LLM alterne entre :
-
-1. **Thought** (Réflexion) — "Je dois trouver les données financières de NVIDIA"
-2. **Action** (Outil) — Appelle `get_market_data("NVDA")`
-3. **Observation** — Reçoit les données : prix, P/E, dette, etc.
-4. **Thought** — "Le P/E est de 65, c'est élevé. Je dois aussi vérifier…"
-5. **Action** — Appelle un autre outil
-6. Répète jusqu'à avoir assez d'informations (max **6 itérations**)
-
-Le code de cette boucle est dans `src/agents/nodes.py` → `_run_react_loop()`.
-
-### 4. RAG — Retrieval-Augmented Generation (Hybrid)
-
-**Problème** : Le LLM a une date de coupure d'entraînement. Il ne connaît pas les derniers rapports financiers et il peut "halluciner" (inventer des chiffres).
-
-**Solution** : Le RAG permet au LLM de **chercher dans une base de documents** avant de répondre.
-
-#### Approche hybride : Vector + BM25
-
-Contrairement à un RAG classique (recherche vectorielle seule), ce système combine **deux méthodes** et les fusionne avec **Reciprocal Rank Fusion (RRF)** :
-
-```text
-Requête agent : "Apple supply chain risk China Taiwan"
-    │
-    ├──── Recherche sémantique (60%)          ├──── Recherche par mots-clés BM25 (40%)
-    │     ChromaDB + all-MiniLM-L6-v2         │     Algorithme BM25 sur les mêmes docs
-    │     Similarité cosinus                   │     Correspondance exacte des termes
-    │     → Top-K résultats                    │     → Top-K résultats
-    │                                          │
-    └────────────────┬─────────────────────────┘
-                     │
-                     ▼
-           Reciprocal Rank Fusion (k=60)
-           Score = Σ weight × (1 / (k + rank))
-                     │
-                     ▼
-           Top documents fusionnés et re-classés
-           → Le LLM lit ces documents pour répondre
+```sh
+ollama pull qwen3.5
+ollama pull embeddinggemma
 ```
-
-**Documents seed** : 6 PDFs dans `data/docs/` (WEF Global Risks 2026, Apollo Credit Outlook, etc.) sont indexés automatiquement au premier lancement.
-
-Le code complet est dans `src/tools/rag_pipeline.py`.
-
-### 5. Optimisations Token & Coût
-
-Trois optimisations réduisent significativement les coûts :
-
-| Optimisation | Gain estimé | Fichier |
-| :--- | :--- | :--- |
-| **Message Pruning** — Suppression des `ToolMessages` et `AIMessages` intermédiaires entre agents. Seules les synthèses nommées sont conservées. | ~40-50% tokens/run | `nodes.py` → `_prune_messages()` |
-| **Supervisor léger** — Le supervisor évalue la qualité via `risk_signals[]` (~2.5K tokens) au lieu de l'historique brut complet (~50K tokens). | ~95% sur l'évaluation | `supervisor.py` → lectures de `risk_signals` |
-| **Retry avec backoff** — Exponentiel avec jitter pour les rate limits Gemini (free tier). Évite les crashs et optimise le quota. | Fiabilité | `utils.py` → `retry_with_backoff()` |
-
-### 6. Boucle de Feedback ML (Reinforcement Learning)
-
-Le système intègre un mécanisme de **Reinforcement Learning from Human Feedback (RLHF)** basique :
-
-1. **Collecte (Front-end)** : Dans l'UI Streamlit, l'utilisateur peut voter "✓ USEFUL" ou "✕ POOR" sur chaque source d'actualité utilisée pour générer le rapport.
-2. **Stockage (SQLite)** : Ces votes sont stockés dans `data/risk_history.db` (`table feedback`).
-3. **Filtrage (Agent)** : Au prochain run, quand l'agent cherche des news (via `search_geopolitical_news`), le système interroge la BDD pour obtenir le `ML Confidence Score` de chaque URL.
-    * Si une source a un score < 0.20 (trop de votes négatifs), **elle est purement ignorée** et retirée des résultats fournis au LLM.
-    * Un modificateur de **Time Decay** est appliqué : les articles d'aujourd'hui ou d'hier reçoivent un bonus (+0.20), et ceux de plus de 3 jours un bonus léger (+0.10) pour favoriser la fraîcheur de l'information.
-    * Les résultats sont triés par score RL décroissant avant d'être limités aux top K, assurant que le LLM lit d'abord les sources les plus fiables.
-
-### 7. Sources de données
-
-| Source | Type | Fraîcheur | Fichier |
-| :--- | :--- | :--- | :--- |
-| **DuckDuckGo News** | Live | Actualités récentes + RL Feedback | `src/tools/news_api.py` |
-| **Yahoo Finance** | Live | Données marché temps réel | `src/tools/market_data.py` |
-| **DuckDuckGo Web** | Live | Recherche web générale | `src/tools/news_api.py` |
-| **ChromaDB RAG** | Statique | Documents seed (PDFs 2025-2026) | `src/tools/rag_pipeline.py` |
-
-### 8. Interface Streamlit
-
-L'interface web (`app.py`) offre :
-
-* **Dashboard de configuration** — Sidebar avec templates de requêtes pré-définies (Apple, NVIDIA, Volkswagen, TotalEnergies, Deutsche Bank) ou requête custom
-* **Pipeline visuel temps réel** — Barre de progression animée montrant l'état de chaque agent (Waiting → Running → Done)
-* **Streaming de pensée** — Les actions des agents sont remontées en temps réel via `queue.Queue` partagé
-* **Cards de métriques** — Score global, sous-scores par catégorie, notation crédit, avec code couleur (Low/Moderate/High/Critical)
-* **Radar chart Plotly** — Visualisation des 4 sous-scores de risque (Géopolitique, Crédit, Marché, ESG)
-* **Score Over Time** — Graphique linéaire affichant l'évolution du score de risque d'une entité au fil des rapports générés, avec les news majeures au survol.
-* **Détection d'entité** — Identifie automatiquement si l'entité est cotée en bourse via `yfinance.Search` (badge Public/Privé)
-* **Panel de sources & RL Loop** — Affichage des sources avec leur `ML Confidence Score` et boutons de feedback interactifs pour entraîner le modèle.
-* **Historique** — Accès aux rapports précédents depuis la sidebar
-* **Export** — Téléchargement du rapport en Markdown
-
-### 9. LangSmith — Observabilité
-
-LangSmith trace **chaque appel LLM** en temps réel. Pour l'utiliser :
-
-1. Créer un compte gratuit sur [smith.langchain.com](https://smith.langchain.com)
-2. Configurer dans `.env` :
-
-   ```bash
-   LANGCHAIN_TRACING_V2=true
-   LANGCHAIN_API_KEY=lsv2_pt_xxxx...
-   LANGCHAIN_PROJECT=RiskAnalysis
-   ```
-
-3. Lancer une analyse → aller sur smith.langchain.com → Projects → RiskAnalysis
-4. Cliquer sur un run pour voir le graph complet, les prompts, les réponses, les outils appelés
-
-Le système track aussi les **tokens par agent** (input, output, cached) et calcule le coût estimé de chaque run directement dans le terminal et dans l'UI.
-
-### 10. State Management — In-Memory vs Redis
-
-LangGraph sauvegarde un **checkpoint** après chaque nœud du graphe (Supervisor, Geopolitical, Credit, Synthesizer). C'est ce qui permet de reprendre un run interrompu, d'inspecter l'état, et de partager l'état entre instances.
-
-#### Comparaison
-
-| | **MemorySaver** (In-Memory) | **Redis** (via `langgraph-checkpoint-redis`) |
-| :--- | :--- | :--- |
-| **Persistance** | ❌ Perdu au crash/restart du process | ✅ Survit aux crashes, données sur disque |
-| **Scalabilité** | ❌ 1 seul process, 1 seule instance | ✅ Plusieurs workers/instances partagent l'état |
-| **Performance** | ~0ms (RAM) | < 1ms (réseau local) |
-| **Inspection** | ❌ Impossible de voir l'état externe | ✅ `redis-cli KEYS '*'` ou RedisInsight |
-| **Reprise de run** | ❌ Thread ID perdu au restart | ✅ Reprendre un thread ID existant |
-| **Setup** | Aucun (inclus dans LangGraph) | Docker + `redis-stack-server` |
-| **Cas d'usage** | Développement, tests, démos | Production, observabilité, déploiement |
-
-#### Que stocke Redis exactement ?
-
-Après un run complet, Redis contient 3 types de clés :
-
-| Type de clé | Rôle |
-| :--- | :--- |
-| `checkpoint:<thread_id>:<checkpoint_id>` | État complet du graphe à un instant T (messages, risk_signals, next_agent…) |
-| `checkpoint_write:<thread_id>:<checkpoint_id>:...:N` | Écritures individuelles (chaque field modifié par un nœud) |
-| `checkpoint_latest:<thread_id>` | Pointeur vers le dernier checkpoint — permet de reprendre |
-
-#### Quand utiliser Redis ?
-
-* **Dev / Test / Démo** → In-Memory suffit. Pas besoin de Docker.
-* **Production / Multi-utilisateurs** → Redis. Permet la reprise sur erreur, l'inspection de l'état, et le scaling horizontal.
-
-> **Note** : `langgraph-checkpoint-redis` nécessite **Redis Stack** (pas Redis classique), car il utilise le module **RedisSearch** (`FT._LIST`). Le docker-compose fourni utilise l'image `redis/redis-stack-server:latest` qui inclut ce module.
-
-#### Visualiser les données Redis
-
-```bash
-# Vérifier que Redis répond
-docker exec risk-redis redis-cli PING
-
-# Lister tous les checkpoints
-docker exec risk-redis redis-cli KEYS '*'
-
-# Nombre total de clés
-docker exec risk-redis redis-cli DBSIZE
-
-# Interface graphique (RedisInsight)
-docker run -d --name redis-insight -p 5540:5540 redis/redisinsight:latest
-# → Ouvrir http://localhost:5540 → Connect existing database → host.docker.internal:6379
-```
-
----
 
 ## Quick Start
 
-### 1. Local Development
+Launch the Streamlit frontend:
 
-```bash
-# Clone & setup
-cd RiskAnalysis
-python3.13 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+```sh
+just dev
+```
 
-# Configure: edit .env with your GOOGLE_API_KEY
-# Get a key at: https://aistudio.google.com/apikey
+Or manually:
 
-# Run the web interface (in-memory state)
+```sh
 streamlit run app.py
-
-# Run with Redis persistence (optionnel)
-docker compose up redis -d   # Lance Redis Stack
-streamlit run app.py          # Activer le toggle "Redis (persistence)" dans la sidebar
-
-# CLI mode
-python -m src.main
-python -m src.main "Assess credit risk for Tesla Inc."
 ```
 
-### 2. Docker (with Redis)
+To use Gemini, select it from the sidebar dropdown and either:
+- Paste your Google API key in the password field, or
+- Set `GOOGLE_API_KEY` in your `.env` file (see `.env.example`)
 
-```bash
-# Build & run
-docker compose up --build
+## Environment Variables
 
-# Or run in background
-docker compose up -d --build
-docker compose logs -f app
-```
+| Variable | Required for | Description |
+|----------|--------------|-------------|
+| `GOOGLE_API_KEY` | Gemini | Your Google AI API key |
+| `OLLAMA_MODEL` | Ollama | Model name (e.g. `qwen3.5`, `lfm2`) |
+| `OLLAMA_BASE_URL` | Ollama | Base URL (default: `http://localhost:11434`) |
+| `REDIS_URL` | Redis checkpointing | Redis connection string (default: `redis://localhost:6379`) |
 
-L'image Docker utilise `python:3.13-slim` et lance par défaut `python -m src.main --redis`.
+## License
 
----
-
-## Project Structure
-
-```text
-RiskAnalysis/
-├── app.py                    # Streamlit web interface (dashboard complet)
-├── src/
-│   ├── agents/
-│   │   ├── prompts.py        # System prompts spécialisés (ReAct format)
-│   │   ├── nodes.py          # Node functions + ReAct loop + token tracking
-│   │   └── supervisor.py     # Routage déterministe + self-correction LLM
-│   ├── tools/
-│   │   ├── market_data.py    # Yahoo Finance (prix, ratios, bilan, historique)
-│   │   ├── news_api.py       # DuckDuckGo News + Web search
-│   │   └── rag_pipeline.py   # Hybrid RAG: ChromaDB vectors + BM25 + RRF
-│   ├── state/
-│   │   └── schema.py         # AgentState TypedDict (messages, risk_signals, etc.)
-│   ├── utils.py              # Retry avec exponential backoff + jitter
-│   ├── graph.py              # StateGraph builder + Redis/Memory checkpointing
-│   └── main.py               # Async entrypoint + source extraction + cost calc
-├── data/
-│   ├── docs/                 # PDFs seed pour le RAG (WEF, Apollo, etc.)
-│   └── chroma_db/            # ChromaDB persistence (auto-généré)
-├── output/                   # Rapports générés (Markdown)
-├── .streamlit/config.toml    # Streamlit config (force light theme)
-├── RiskAnalysis_Architecture.drawio  # Diagramme d'architecture (Draw.io)
-├── glossaire.md              # Glossaire technique EN→FR
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── .env                      # API keys (git-ignored)
-```
-
-## Agents
-
-| Agent | Role | Tools | Prompt |
-| :--- | :--- | :--- | :--- |
-| **Supervisor** | Pipeline routing (déterministe puis self-correction LLM) | Structured JSON output | `SUPERVISOR_EVALUATION_PROMPT` |
-| **Geopolitical Analyst** | Risques macro, géopolitiques, sanctions, supply chain | `search_geopolitical_news`, `search_web_general`, `search_corporate_disclosures` | `GEOPOLITICAL_SYSTEM_PROMPT` |
-| **Credit Risk Evaluator** | Analyse crédit quantitative (Z-Score, ratios, notation) | `get_market_data`, `search_corporate_disclosures`, `search_web_general` | `CREDIT_SYSTEM_PROMPT` |
-| **Market Synthesizer** | Rapport intégré final (CRO-level, score 0-100) | `search_corporate_disclosures`, `search_web_general` | `SYNTHESIZER_SYSTEM_PROMPT` |
-
-## State Schema (`AgentState`)
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `messages` | `Annotated[Sequence[BaseMessage], add_messages]` | Messages accumulés (auto-merge LangGraph) |
-| `next_agent` | `str` | Prochain agent à exécuter (décision du supervisor) |
-| `current_company` | `str` | Entité en cours d'analyse |
-| `risk_signals` | `Annotated[list[dict], operator.add]` | Synthèses intermédiaires par agent (auto-append) |
-| `final_report` | `str` | Rapport de risque final |
-| `iteration_count` | `int` | Compteur de sécurité anti-boucle infinie (max 10) |
-| `token_usage` | `Annotated[list[dict], operator.add]` | Suivi des tokens par appel LLM |
-
-## Database Schema (`risk_history.db`)
-
-SQLite est utilisé pour stocker l'historique et faire tourner la boucle RL :
-
-| Table | Description |
-| :--- | :--- |
-| `reports` | Historique des rapports générés (ID, entité, scores, timestamp). Permet l'affichage du graphique *Score Over Time*. |
-| `report_news` | Table de liaison stockant les news exactes utilisées pour générer un rapport donné (pour les tooltips du graphique). |
-| `feedback` | Stocke les votes des utilisateurs (`is_helpful`: booleen) pour chaque URL afin d'entraîner le modèle de pondération RL. |
-
-## Output
-
-The framework produces a structured **Integrated Risk Assessment Report** with:
-
-* Overall Risk Score (0-100)
-* Risk decomposition (Geopolitical, Credit, Market, ESG)
-* Internal Credit Rating (AAA-D) with outlook
-* Scenario analysis (Bull/Base/Bear with probabilities)
-* Actionable recommendations
-* Source citations
-
-Reports are saved to `output/risk_report_YYYYMMDD_HHMMSS.md`.
-
----
-
-**Stack**: Python 3.13 · LangGraph · Gemini 2.5 Flash · ChromaDB · BM25/RRF · Redis · Streamlit · Plotly · Docker · Asyncio
+This project is licensed under the MIT License.

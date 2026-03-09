@@ -1,7 +1,7 @@
 langgraph
 langchain
-langchain-huggingface==1.2.1
 langchain-core
+langchain-ollama
 langchain-google-genai
 langchain-community
 langchain-chroma
@@ -12,11 +12,16 @@ asyncio
 ddgs==9.11.1
 yfinance==0.2.54
 pydantic==2.10.6
+loguru
 python-dotenv
 chromadb
-sentence-transformers
 streamlit
 plotly
 pypdf
 rank_bm25
 requests
+pyyaml
+tomli;python_version<"3.11"
+# Optional fallback (only needed if embeddings.default = "huggingface")
+# langchain-huggingface==1.2.1
+# sentence-transformers

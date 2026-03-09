@@ -24,8 +24,8 @@ import streamlit as st
 import warnings
 import uuid
 
-# Suppress annoying google.genai deprecation warning (AiohttpClientSession)
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="google.genai")
+# Suppress deprecation warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from src.main import run_analysis
 import src.db as db
@@ -654,7 +654,7 @@ st.markdown("""
 st.markdown("""
 <div class="app-header">
     <h1>Risk Assessment Framework</h1>
-    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Gemini 2.5 Flash</p>
+    <p>Multi-Agent LLM Pipeline &nbsp;·&nbsp; LangGraph &nbsp;·&nbsp; Ollama / Gemini</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -710,6 +710,27 @@ with st.sidebar:
         placeholder="Describe the risk analysis you need...",
     )
 
+    # Model selection
+    OLLAMA_MODELS = {
+        "qwen3.5 (9B — fast, good tool-use)": "qwen3.5",
+        "lfm2 (24B — strong reasoning)": "lfm2",
+        "gemini-2.5-flash (Google API)": "gemini-2.5-flash",
+    }
+    model_label = st.selectbox("LLM Model", list(OLLAMA_MODELS.keys()))
+    selected_model = OLLAMA_MODELS[model_label]
+    os.environ["OLLAMA_MODEL"] = selected_model
+    
+    if selected_model.startswith("gemini"):
+        api_key = st.text_input("Google API Key", type="password", placeholder="Or set GOOGLE_API_KEY in .env")
+        if api_key:
+            os.environ["GOOGLE_API_KEY"] = api_key
+        else:
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+        if not api_key:
+            st.warning("API Key required for Gemini.")
+    else:
+        api_key = "ok"
+
     use_redis = st.toggle("Redis (persistence)", value=False)
     if use_redis:
         st.markdown(
@@ -725,7 +746,7 @@ with st.sidebar:
     run_btn = st.button(
         "Run Analysis",
         type="primary",
-        disabled=st.session_state.running or not query.strip(),
+        disabled=st.session_state.running or not query.strip() or (selected_model.startswith("gemini") and not api_key),
     )
 
     st.markdown("---")
@@ -782,28 +803,25 @@ def _format_report_html(report_text: str) -> str:
     return report_text
 
 
-def _parse_scores(report: str) -> dict:
-    """Parse risk scores from report text."""
-    scores = {}
-    patterns = {
-        "overall": r"OVERALL RISK SCORE:\s*(\d+)/100",
-        "geopolitical": r"Geopolitical Risk:\s*(\d+)/100",
-        "credit": r"Credit/Financial:\s*(\d+)/100",
-        "market": r"Market/Liquidity:\s*(\d+)/100",
-        "esg": r"ESG/Transition:\s*(\d+)/100",
-    }
-    for key, pat in patterns.items():
-        m = re.search(pat, report)
-        if m:
-            scores[key] = int(m.group(1))
+def _get_scores() -> dict:
+    """Get risk scores from structured report (preferred) or fallback to regex parsing."""
+    sr = st.session_state.get("structured_report")
+    if sr and isinstance(sr, dict):
+        return {
+            "entity": sr.get("entity", "Unknown"),
+            "overall": sr.get("overall_score", 0),
+            "geopolitical": sr.get("geopolitical_score", 0),
+            "credit": sr.get("credit_score", 0),
+            "market": sr.get("market_score", 0),
+            "esg": sr.get("esg_score", 0),
+            "rating": f"{sr.get('credit_rating', 'N/A')} / {sr.get('credit_outlook', 'Stable')}",
+        }
 
-    m = re.search(r"INTERNAL CREDIT RATING:\s*(.+)", report)
-    if m:
-        scores["rating"] = m.group(1).strip()
-    m = re.search(r"ENTITY:\s*(.+)", report)
-    if m:
-        scores["entity"] = m.group(1).strip()
-    return scores
+    # Fallback: regex parsing for legacy/text-only reports
+    report = st.session_state.get("report", "")
+    from src.state.schema import parse_report_to_structured
+    parsed = parse_report_to_structured(report)
+    return parsed.to_scores_dict()
 
 
 def _score_class(score: int) -> str:
@@ -1218,17 +1236,18 @@ if run_btn and query.strip() and not st.session_state.running:
     set_log_queue(log_queue)
     log_lines = []
 
-    result_holder = {"report": None, "sources": None, "token_usage": None, "error": None}
+    result_holder = {"report": None, "sources": None, "token_usage": None, "structured_report": None, "error": None}
 
     def _run_in_thread():
         import asyncio as _asyncio
         try:
             loop = _asyncio.new_event_loop()
             _asyncio.set_event_loop(loop)
-            r, s, t = loop.run_until_complete(run_analysis(query=query, use_redis=use_redis))
+            r, s, t, sr = loop.run_until_complete(run_analysis(query=query, use_redis=use_redis))
             result_holder["report"] = r
             result_holder["sources"] = s
             result_holder["token_usage"] = t
+            result_holder["structured_report"] = sr
         except Exception as e:
             result_holder["error"] = str(e)
         finally:
@@ -1302,11 +1321,12 @@ if run_btn and query.strip() and not st.session_state.running:
         st.session_state.report = result_holder["report"]
         st.session_state.sources = result_holder["sources"]
         st.session_state.token_usage = result_holder["token_usage"]
+        st.session_state.structured_report = result_holder["structured_report"]
         st.session_state.elapsed = elapsed
-        
+
         # Save report to history DB
         st.session_state.report_id = str(uuid.uuid4())
-        scores = _parse_scores(st.session_state.report)
+        scores = _get_scores()
         entity = scores.get("entity", "N/A").strip()
         if entity and entity != "N/A":
             db.save_report(st.session_state.report_id, entity, scores, st.session_state.report, st.session_state.sources)
@@ -1326,7 +1346,7 @@ if run_btn and query.strip() and not st.session_state.running:
 # ── Main — Display Report ────────────────────────────────────────────
 if st.session_state.report:
     report = st.session_state.report
-    scores = _parse_scores(report)
+    scores = _get_scores()
 
     # Metrics
     st.markdown('<div class="section-title">Risk Scores</div>', unsafe_allow_html=True)

@@ -1,0 +1,49 @@
+"""Application — Credit Risk Evaluator agent node."""
+
+from __future__ import annotations
+
+import queue
+from typing import Any
+
+from langchain_core.messages import AIMessage
+
+from src.agents.middleware import AgentMiddleware
+from src.application.agents.base import run_react_loop
+from src.application.dto import AgentState
+from src.infrastructure.llm.factory import create_llm
+from src.infrastructure.skills.loader import get_skill_prompt
+
+_log_queue: queue.Queue | None = None
+_tools: list[Any] = []
+
+
+def configure(tools: list[Any], log_queue: queue.Queue | None = None) -> None:
+    global _log_queue, _tools
+    _log_queue = log_queue
+    _tools = tools
+
+
+async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
+    """Credit Risk Evaluator — fundamental credit analysis."""
+    mw = AgentMiddleware(agent_name="credit_evaluator", log_queue=_log_queue)
+    mw.on_start("Credit Evaluator")
+
+    llm = create_llm(temperature=0.1, num_predict=4096)
+    llm_with_tools = llm.bind_tools(_tools)
+
+    final_content, new_messages, _ = await run_react_loop(
+        llm_with_tools=llm_with_tools,
+        system_prompt=get_skill_prompt("credit-evaluator"),
+        state_messages=state["messages"],
+        mw=mw,
+        max_iterations=6,
+    )
+
+    mw.on_done()
+    s = mw.summary()
+    return {
+        "messages": [AIMessage(content=f"[CREDIT RISK EVALUATOR]\n\n{final_content}", name="credit_evaluator")] + new_messages,
+        "risk_signals": [{"agent": "credit_evaluator", "analysis": final_content}],
+        "iteration_count": state.get("iteration_count", 0) + 1,
+        "token_usage": [{"agent": s["agent"], "input": s["input"], "output": s["output"], "cached": s["cached"]}],
+    }

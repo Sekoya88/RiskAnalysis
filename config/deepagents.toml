@@ -1,0 +1,66 @@
+# DeepAgents Configuration
+# Per-model overrides for local LLM inference + embeddings + retrieval
+
+# ── LLM Models ──────────────────────────────────────────────────────
+
+[models.providers.ollama]
+models = ["qwen3.5", "lfm2"]
+
+[models.providers.ollama.params]
+temperature = 0.1
+num_ctx = 8192
+num_predict = 4096
+
+# qwen3.5: Fast, good tool-use — lower context, faster inference
+[models.providers.ollama.params."qwen3.5"]
+temperature = 0.1
+num_ctx = 8192
+num_predict = 4096
+
+# lfm2: Strong reasoning — larger context window
+[models.providers.ollama.params."lfm2"]
+temperature = 0.15
+num_ctx = 16384
+num_predict = 8192
+
+# Per-model profile overrides
+[models.providers.ollama.profile."qwen3.5"]
+max_input_tokens = 8192
+
+[models.providers.ollama.profile."lfm2"]
+max_input_tokens = 16384
+
+# ── Embeddings ──────────────────────────────────────────────────────
+# Default provider for vector embeddings.
+# Switch to "huggingface" to fall back to sentence-transformers.
+
+[embeddings]
+default = "ollama"
+
+[embeddings.providers.ollama]
+model = "embeddinggemma"
+# base_url defaults to OLLAMA_BASE_URL env or http://localhost:11434
+
+[embeddings.providers.huggingface]
+model = "all-MiniLM-L6-v2"
+device = "cpu"
+
+# ── Vector Store ────────────────────────────────────────────────────
+
+[vector_store]
+provider = "chroma"
+persist_directory = "data/chroma_db"
+collection_name = "corporate_disclosures"
+
+# ── Retrieval ───────────────────────────────────────────────────────
+
+[retrieval]
+strategy = "hybrid"
+vector_weight = 0.6
+bm25_weight = 0.4
+rrf_k = 60
+
+# ── Skills ──────────────────────────────────────────────────────────
+
+[skills]
+sources = ["skills/"]
