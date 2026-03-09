@@ -26,7 +26,40 @@ You can select your preferred model directly from the Streamlit UI sidebar:
 
 If you use Gemini, the application dynamically switches its backend LangChain driver to `langchain-google-genai` instead of `langchain-ollama`.
 
-## Architecture & Multi-Agent Flow
+## Architecture (Clean DDD)
+
+The codebase follows a **Domain-Driven Design** with clear separation of concerns:
+
+```text
+src/
+├── domain/                 # Pure business logic, zero external deps
+│   ├── models/             # RiskReport, Scenario, Source (value objects)
+│   ├── ports/              # Protocol interfaces (LLM, Embedding, VectorStore, etc.)
+│   └── services/           # RL scoring, report parsing
+│
+├── application/            # Orchestration layer
+│   ├── agents/             # Geopolitical, Credit, Synthesizer (ReAct loop)
+│   ├── supervisor.py       # Pipeline routing + self-correction
+│   ├── graph.py            # LangGraph StateGraph builder
+│   └── dto.py              # AgentState TypedDict
+│
+├── infrastructure/         # Concrete adapter implementations
+│   ├── llm/                # OllamaLLMAdapter, GeminiLLMAdapter, factory
+│   ├── embeddings/         # OllamaEmbeddingAdapter (embeddinggemma), HuggingFace fallback
+│   ├── vector_store/       # ChromaVectorStoreAdapter
+│   ├── retrieval/          # HybridRetriever (RRF fusion)
+│   ├── data_sources/       # YahooFinanceAdapter, DuckDuckGoAdapter
+│   ├── persistence/        # SQLite (reports + RL feedback), Redis, file memory
+│   ├── skills/             # SKILL.md loader (YAML frontmatter + Markdown)
+│   └── config/             # TOML config loader (deepagents.toml)
+│
+├── container.py            # Dependency injection (composition root)
+└── main.py                 # CLI entrypoint
+```
+
+Every infrastructure component is hidden behind a **Port** (Python Protocol). Swapping Ollama for OpenAI, ChromaDB for Pinecone, or SQLite for Postgres requires only a new adapter -- no domain or application code changes.
+
+## Multi-Agent Flow
 
 The system runs a LangGraph state machine directed by a **Supervisor Agent**.
 
@@ -40,10 +73,10 @@ The system runs a LangGraph state machine directed by a **Supervisor Agent**.
 
 Agents do not use hardcoded prompts hidden in Python strings. Instead, their entire behavior, persona, and system prompt are defined in Markdown files inside the `skills/` directory.
 
-- `skills/GEOPOLITICAL-ANALYST/SKILL.md`
-- `skills/CREDIT-EVALUATOR/SKILL.md`
-- `skills/MARKET-SYNTHESIZER/SKILL.md`
-- `skills/SUPERVISOR/SKILL.md`
+- `skills/geopolitical-analyst/SKILL.md`
+- `skills/credit-evaluator/SKILL.md`
+- `skills/market-synthesizer/SKILL.md`
+- `skills/supervisor/SKILL.md`
 
 ## Tools & Integrations
 
@@ -53,10 +86,47 @@ Each agent accesses specific tools equipped with strict Pydantic schemas.
 - **News/Web Search:** Aggregated using DuckDuckGo (`ddgs`).
 - **Hybrid RAG:** A custom retrieval pipeline using ChromaDB (semantic search) and BM25 (keyword search). The results are fused using Reciprocal Rank Fusion (RRF). Seed PDFs are located in `data/docs/`.
 
+## Embeddings
+
+Vector embeddings for the RAG pipeline run locally via **Ollama** using the [`embeddinggemma`](https://ollama.com/library/embeddinggemma) model (300M params, Google Gemma 3, 100+ languages).
+
+This eliminates the need for `sentence-transformers` and `torch` (~2GB of dependencies). The embedding model runs in the same Ollama instance as the LLM.
+
+To switch back to HuggingFace `all-MiniLM-L6-v2`, edit `config/deepagents.toml`:
+
+```toml
+[embeddings]
+default = "huggingface"  # instead of "ollama"
+```
+
 ## Persistence & RL Feedback Loop
 
 - **State Checkpointing:** The LangGraph state is continuously saved to **Redis** via `langgraph-checkpoint-redis`. This allows for long-running workflows to be paused, resumed, or debugged.
 - **Reinforcement Learning (RL):** A local SQLite database (`data/risk_history.db`) acts as the ML Feedback Loop backend. In the Streamlit UI, users can vote "Useful" or "Poor" on the news sources the AI used. These votes adjust the `rl_weight` of those sources dynamically. Combined with a time decay algorithm (newer articles get a bonus), the system continuously learns which sources yield the best risk reports.
+
+## Configuration
+
+All infrastructure is configured via `config/deepagents.toml`:
+
+```toml
+[models.providers.ollama]
+models = ["qwen3.5", "lfm2"]
+
+[embeddings]
+default = "ollama"                    # or "huggingface"
+
+[embeddings.providers.ollama]
+model = "embeddinggemma"
+
+[vector_store]
+provider = "chroma"
+persist_directory = "data/chroma_db"
+
+[retrieval]
+strategy = "hybrid"
+vector_weight = 0.6
+bm25_weight = 0.4
+```
 
 ## Frontend UI
 
@@ -86,10 +156,11 @@ pip install -r requirements.txt
 docker compose up redis -d
 ```
 
-*(Optional)* Ensure Ollama is running locally and pull the default model:
+Pull the required Ollama models:
 
 ```sh
 ollama pull qwen3.5
+ollama pull embeddinggemma
 ```
 
 ## Quick Start

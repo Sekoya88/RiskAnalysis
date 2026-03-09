@@ -1,9 +1,11 @@
 """
 Main Entrypoint — Runs the multi-agent risk assessment framework.
 
-Supports both:
-  1. Redis-backed persistent state (production / Docker)
-  2. In-memory state (local development / demo)
+Uses the DDD clean architecture:
+  - Domain: models, ports, services (zero external deps)
+  - Infrastructure: adapters (Ollama, ChromaDB, SQLite, etc.)
+  - Application: agents, supervisor, graph (orchestration)
+  - Container: dependency injection wiring
 
 Usage:
     python -m src.main                          # Default demo query
@@ -41,33 +43,27 @@ DEFAULT_QUERIES = [
 
 def _print_banner():
     """Print startup banner."""
-    logger.info("═" * 70)
-    logger.info("  🌐 AGENTIC RISK ASSESSMENT FRAMEWORK")
+    logger.info("=" * 70)
+    logger.info("  AGENTIC RISK ASSESSMENT FRAMEWORK")
     logger.info("  Multi-Agent LLM System for Credit & Geopolitical Risk")
-    logger.info("  Stack: LangGraph • Ollama (Local LLM) • ChromaDB • Redis")
-    logger.info("═" * 70)
+    logger.info("  Stack: LangGraph | Ollama | ChromaDB (embeddinggemma) | Redis")
+    logger.info("=" * 70)
 
 
 async def run_analysis(
     query: str,
     use_redis: bool = False,
     thread_id: str | None = None,
-) -> str:
-    """Execute a full multi-agent risk analysis.
+) -> tuple[str, dict, list, dict | None]:
+    """Execute a full multi-agent risk analysis."""
+    from src.container import bootstrap
+    from src.application.graph import build_graph
 
-    Args:
-        query: The risk assessment query / prompt.
-        use_redis: If True, use Redis-backed state persistence.
-        thread_id: Optional thread ID for state continuity.
-
-    Returns:
-        The final integrated risk report.
-    """
-    from src.graph import build_graph
+    # Bootstrap DI container (idempotent)
+    bootstrap()
 
     thread_id = thread_id or str(uuid.uuid4())
 
-    # ── Initial state ─────────────────────────────────────────────────
     initial_state = {
         "messages": [HumanMessage(content=query)],
         "next_agent": "",
@@ -80,80 +76,48 @@ async def run_analysis(
     }
     config = {"configurable": {"thread_id": thread_id}}
 
-    # ── Build graph + execute ─────────────────────────────────────────
-    # When Redis is enabled, we MUST keep the async with block open for
-    # the entire graph execution + report extraction. Otherwise the Redis
-    # connection closes and checkpointing fails.
-
-    redis_ok = False
+    redis_cm = None
 
     if use_redis:
         try:
-            from src.graph import get_redis_checkpointer
+            from src.infrastructure.persistence.redis import get_redis_checkpointer
             redis_cm = get_redis_checkpointer()
         except ImportError:
-            redis_cm = None
             logger.warning("langgraph-checkpoint-redis not installed. Using in-memory state.")
-            logger.warning("Install with: pip install langgraph-checkpoint-redis")
         except Exception as e:
-            redis_cm = None
             err_msg = str(e)
             if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
                 logger.warning(
-                    "Redis is running but missing the RedisSearch module.\n"
-                    "langgraph-checkpoint-redis requires redis-stack-server.\n"
-                    "Fix: docker compose up redis -d\n"
-                    "Falling back to in-memory state."
+                    "Redis missing RedisSearch module. Falling back to in-memory state."
                 )
             else:
                 logger.warning(f"Redis connection failed ({e}). Falling back to in-memory state.")
-    else:
-        redis_cm = None
 
     if use_redis and redis_cm is not None:
-        # ── Redis path: everything inside the async with ──────────
         try:
             async with redis_cm as checkpointer:
-                redis_ok = True
                 graph = build_graph(checkpointer=checkpointer)
-                backend_label = "Redis"
                 logger.info(f"Query: {query[:100]}...")
                 logger.info(f"Thread ID: {thread_id}")
-                logger.info(f"State Backend: {backend_label}")
-                logger.info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
+                logger.info("State Backend: Redis")
                 return await _execute_graph(graph, initial_state, config)
         except Exception as e:
-            err_msg = str(e)
-            if "FT._LIST" in err_msg or "unknown command" in err_msg.lower():
-                logger.warning(
-                    "Redis is running but missing the RedisSearch module.\n"
-                    "langgraph-checkpoint-redis requires redis-stack-server.\n"
-                    "Fix: docker compose up redis -d\n"
-                    "Falling back to in-memory state."
-                )
-            else:
-                logger.warning(f"Redis connection failed ({e}). Falling back to in-memory state.")
-            # Fall through to in-memory path below
+            logger.warning(f"Redis failed ({e}). Falling back to in-memory state.")
 
-    # ── In-memory path ────────────────────────────────────────────
+    # In-memory fallback
     from langgraph.checkpoint.memory import MemorySaver
     checkpointer = MemorySaver()
     graph = build_graph(checkpointer=checkpointer)
-    backend_label = "In-Memory"
-    if use_redis:
-        backend_label = "In-Memory (Redis failed — see above)"
+    backend_label = "In-Memory (Redis failed)" if use_redis else "In-Memory"
     logger.info(f"Query: {query[:100]}...")
     logger.info(f"Thread ID: {thread_id}")
     logger.info(f"State Backend: {backend_label}")
-    logger.info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
     return await _execute_graph(graph, initial_state, config)
 
 
 async def _execute_graph(graph, initial_state, config):
-    """Run the graph and extract report + sources. Shared by Redis & in-memory paths."""
-    from src.agents.nodes import _extract_text
+    """Run the graph and extract report + sources."""
+    from src.domain.services.report_builder import extract_text
     from langchain_core.messages import ToolMessage as _ToolMessage
 
     start_time = time.time()
@@ -174,13 +138,12 @@ async def _execute_graph(graph, initial_state, config):
                 logger.info(f"Next: {node_output['next_agent']}")
 
     elapsed = time.time() - start_time
-    logger.info("═" * 70)
+    logger.info("=" * 70)
     logger.info(f"Analysis completed in {elapsed:.1f} seconds")
-    logger.info("═" * 70)
+    logger.info("=" * 70)
 
-    # ── Extract final report + sources ────────────────────────────────
     final_report = ""
-    sources = {"news": [], "market": [], "rag": []}
+    sources: dict = {"news": [], "market": [], "rag": []}
     token_usage = []
     structured_report = None
 
@@ -188,24 +151,23 @@ async def _execute_graph(graph, initial_state, config):
         snapshot = await graph.aget_state(config)
         if snapshot and snapshot.values:
             raw = snapshot.values.get("final_report", "")
-            final_report = _extract_text(raw).strip()
+            final_report = extract_text(raw).strip()
 
             messages = snapshot.values.get("messages", [])
             if not final_report:
                 for msg in reversed(messages):
                     if hasattr(msg, "name") and msg.name == "market_synthesizer":
-                        final_report = _extract_text(msg.content).strip()
+                        final_report = extract_text(msg.content).strip()
                         if final_report:
                             break
 
                 if not final_report and messages:
                     for msg in reversed(messages):
                         if hasattr(msg, "name") and msg.name:
-                            final_report = _extract_text(msg.content).strip()
+                            final_report = extract_text(msg.content).strip()
                             if final_report:
                                 break
 
-            # ── Extract sources from ToolMessages ─────────────────────
             for msg in messages:
                 if not isinstance(msg, _ToolMessage):
                     continue
@@ -264,9 +226,8 @@ async def _execute_graph(graph, initial_state, config):
     except Exception as e:
         final_report = final_report or f"Report extraction failed: {e}"
 
-    # Build structured report if not already available
     if not structured_report and final_report:
-        from src.state.schema import parse_report_to_structured
+        from src.domain.models.risk_report import parse_report_to_structured
         structured_report = parse_report_to_structured(final_report).model_dump()
 
     return final_report, sources, token_usage, structured_report
@@ -276,7 +237,6 @@ async def main():
     """Main entry point."""
     _print_banner()
 
-    # Parse CLI args
     use_redis = "--redis" in sys.argv
     custom_query = None
     for arg in sys.argv[1:]:
@@ -287,30 +247,28 @@ async def main():
     query = custom_query or DEFAULT_QUERIES[0]
 
     logger.info("Initializing agents...")
-    report, sources, token_usage = await run_analysis(query=query, use_redis=use_redis)
+    report, sources, token_usage, structured_report = await run_analysis(query=query, use_redis=use_redis)
 
-    logger.info("═" * 70)
-    logger.info("  📊 FINAL INTEGRATED RISK REPORT")
-    logger.info("═" * 70)
+    logger.info("=" * 70)
+    logger.info("  FINAL INTEGRATED RISK REPORT")
+    logger.info("=" * 70)
     logger.info(report)
-    logger.info("═" * 70)
+    logger.info("=" * 70)
 
-    # Print token usage summary
     if token_usage:
         total_in = sum(t.get("input", 0) for t in token_usage)
         total_out = sum(t.get("output", 0) for t in token_usage)
         total_cached = sum(t.get("cached", 0) for t in token_usage)
         cost_in = total_in * 0.30 / 1_000_000
         cost_out = total_out * 2.50 / 1_000_000
-        saved = total_cached * 0.27 / 1_000_000  # 90% of input price
-        logger.info("  📊 TOKEN USAGE")
+        saved = total_cached * 0.27 / 1_000_000
+        logger.info("  TOKEN USAGE")
         for t in token_usage:
             logger.info(f"     {t['agent']:25s} | {t['input']:,} in | {t['output']:,} out | {t.get('cached', 0):,} cached")
         logger.info(f"     {'TOTAL':25s} | {total_in:,} in | {total_out:,} out | {total_cached:,} cached")
-        logger.info(f"  💰 ESTIMATED COST: ${cost_in + cost_out:.4f} (saved ${saved:.4f} via caching)")
-        logger.info("═" * 70)
+        logger.info(f"  ESTIMATED COST: ${cost_in + cost_out:.4f} (saved ${saved:.4f} via caching)")
+        logger.info("=" * 70)
 
-    # Save report to file
     output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
