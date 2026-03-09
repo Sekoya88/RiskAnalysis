@@ -74,6 +74,7 @@ async def run_analysis(
         "current_company": "",
         "risk_signals": [],
         "final_report": "",
+        "structured_report": None,
         "iteration_count": 0,
         "token_usage": [],
     }
@@ -181,6 +182,7 @@ async def _execute_graph(graph, initial_state, config):
     final_report = ""
     sources = {"news": [], "market": [], "rag": []}
     token_usage = []
+    structured_report = None
 
     try:
         snapshot = await graph.aget_state(config)
@@ -257,11 +259,17 @@ async def _execute_graph(graph, initial_state, config):
                             sources["rag"].append(entry)
 
             token_usage = snapshot.values.get("token_usage", [])
+            structured_report = snapshot.values.get("structured_report")
 
     except Exception as e:
         final_report = final_report or f"Report extraction failed: {e}"
 
-    return final_report, sources, token_usage
+    # Build structured report if not already available
+    if not structured_report and final_report:
+        from src.state.schema import parse_report_to_structured
+        structured_report = parse_report_to_structured(final_report).model_dump()
+
+    return final_report, sources, token_usage, structured_report
 
 
 async def main():

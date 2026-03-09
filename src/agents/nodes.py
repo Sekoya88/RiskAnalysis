@@ -2,16 +2,18 @@
 Agent Nodes — LangGraph node functions for each specialized agent.
 
 Each node:
-  1. Binds its tools to the LLM (Anthropic Claude via langchain-anthropic).
-  2. Invokes the LLM with its specialist system prompt.
+  1. Binds its tools to the LLM (Ollama via langchain-ollama).
+  2. Loads its specialist skill (SKILL.md) for the system prompt.
   3. Implements ReAct tool-use loop with exponential backoff retry.
-  4. Returns an updated AgentState with new messages and risk signals.
+  4. Uses AgentMiddleware for logging & token tracking.
+  5. Returns an updated AgentState with new messages and risk signals.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import queue
 from typing import Any
 
 from dotenv import load_dotenv
@@ -24,9 +26,11 @@ except ImportError:
 
 from loguru import logger
 
+from src.agents.memory import load_memory, update_memory
+from src.agents.middleware import AgentMiddleware
 from src.agents.skills import get_skill_prompt
 from src.config.providers import get_model_config
-from src.state.schema import AgentState
+from src.state.schema import AgentState, parse_report_to_structured
 from src.tools.market_data import get_market_data
 from src.tools.news_api import search_geopolitical_news, search_web_general
 from src.tools.rag_pipeline import search_corporate_disclosures
@@ -37,8 +41,8 @@ load_dotenv()
 # ── LLM Configuration ────────────────────────────────────────────────
 def _get_llm(temperature: float | None = None, num_predict: int | None = None) -> Any:
     """Instantiate a local LLM via Ollama or Google Gemini."""
-    model = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
-    
+    model = os.getenv("OLLAMA_MODEL", "qwen3.5")
+
     if model.startswith("gemini"):
         if not ChatGoogleGenerativeAI:
             raise ImportError("langchain-google-genai is not installed. Please install it to use Gemini models.")
@@ -51,7 +55,7 @@ def _get_llm(temperature: float | None = None, num_predict: int | None = None) -
             temperature=temperature if temperature is not None else 0.1,
             max_output_tokens=num_predict if num_predict is not None else 8192,
         )
-    
+
     cfg = get_model_config(model)
     return ChatOllama(
         model=model,
@@ -75,13 +79,15 @@ CREDIT_TOOLS = [get_market_data, search_corporate_disclosures, search_web_genera
 SYNTHESIZER_TOOLS = [search_corporate_disclosures, search_web_general]
 
 
-async def _execute_tool_calls(tool_calls: list[dict]) -> list[ToolMessage]:
+async def _execute_tool_calls(tool_calls: list[dict], mw: AgentMiddleware) -> list[ToolMessage]:
     """Execute tool calls and return ToolMessages."""
     messages = []
     for tool_call in tool_calls:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
         tool_fn = TOOL_REGISTRY.get(tool_name)
+
+        mw.on_tool_call(tool_name)
 
         if tool_fn:
             try:
@@ -107,51 +113,30 @@ def _prune_messages(messages: list) -> list:
         if isinstance(msg, HumanMessage):
             pruned.append(msg)
         elif isinstance(msg, AIMessage) and getattr(msg, "name", None):
-            # Keep only the final named summary (e.g. [GEOPOLITICAL ANALYST])
             pruned.append(AIMessage(content=msg.content, name=msg.name))
-        # Drop: ToolMessages, unnamed AIMessages (tool-calling intermediaries)
     return pruned
 
 
-def _extract_token_usage(response) -> dict:
-    """Extract token usage from an LLM response.
-
-    LangChain ChatOllama exposes usage_metadata with input_tokens/output_tokens.
-    """
-    usage = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}
-    try:
-        um = None
-        # Support for both ChatOllama and ChatGoogleGenerativeAI
-        raw_um = getattr(response, "usage_metadata", None)
-        
-        if raw_um:
-            if isinstance(raw_um, dict):
-                um = raw_um
-            else:
-                um = {
-                    "input_tokens": getattr(raw_um, "input_tokens", 0) or getattr(raw_um, "prompt_token_count", 0),
-                    "output_tokens": getattr(raw_um, "output_tokens", 0) or getattr(raw_um, "candidates_token_count", 0),
-                    "cached_tokens": getattr(raw_um, "cache_read_input_tokens", 0) or getattr(raw_um, "cached_content_token_count", 0),
-                }
-                
-        if not um:
-            meta = getattr(response, "response_metadata", {}) or {}
-            um = meta.get("usage_metadata", {})
-            
-        if um:
-            usage["input_tokens"] = um.get("input_tokens", 0) or um.get("prompt_token_count", 0)
-            usage["output_tokens"] = um.get("output_tokens", 0) or um.get("candidates_token_count", 0)
-            usage["cached_tokens"] = um.get("cache_read_input_tokens", 0) or um.get("cached_content_token_count", 0)
-
-        if usage["output_tokens"] == 0 and hasattr(response, "content") and response.content:
-            usage["output_tokens"] = len(str(response.content)) // 4
-    except Exception:
-        pass
-    return usage
+def _extract_text(content: Any) -> str:
+    """Extract plain text from LLM structured content format."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    text = block.get("text", "")
+                    if text.strip():
+                        parts.append(text)
+            elif isinstance(block, str):
+                if block.strip():
+                    parts.append(block)
+        return "\n".join(parts)
+    return str(content)
 
 
 # ── Shared log queue for live UI streaming ────────────────────────────
-import queue
 _log_queue: queue.Queue | None = None
 
 
@@ -161,40 +146,24 @@ def set_log_queue(q: queue.Queue):
     _log_queue = q
 
 
-def _emit_log(message: str):
-    """Push a log message to the shared queue (if set) and use logger.info."""
-    if _log_queue is not None:
-        try:
-            _log_queue.put_nowait(message)
-        except queue.Full:
-            pass
-    logger.info(message)
-
-
 async def _run_react_loop(
     llm_with_tools: Any,
     system_prompt: str,
     state_messages: list,
+    mw: AgentMiddleware,
     max_iterations: int = 6,
 ) -> tuple[str, list, list[dict]]:
     """Run the ReAct reasoning loop with retry on rate limits.
 
-    Thought → Action → Observation → ... → Final Answer
-
     Returns:
         A tuple of (final_text, messages_to_add, token_records).
-        final_text: The final reasoning result.
-        messages_to_add: All AI and Tool messages generated during the loop.
-        token_records: List of token usage dicts per LLM call.
     """
     messages = [SystemMessage(content=system_prompt)] + list(state_messages)
     loop_messages = []
-    token_records = []
 
     response = None
     for iteration in range(max_iterations):
-        _emit_log(f"💭 Iteration {iteration + 1}/{max_iterations} — thinking...")
-        # Invoke LLM with retry on rate limits
+        mw.on_iteration(iteration + 1, max_iterations)
         response = await retry_with_backoff(
             llm_with_tools.ainvoke,
             messages,
@@ -204,30 +173,18 @@ async def _run_react_loop(
         messages.append(response)
         loop_messages.append(response)
 
-        # Track token usage
-        tu = _extract_token_usage(response)
-        token_records.append(tu)
-        if tu["input_tokens"] > 0:
-            _emit_log(f"📊 Tokens: {tu['input_tokens']:,} in / {tu['output_tokens']:,} out")
+        mw.on_llm_response(response)
 
-        # If no tool calls, the agent has finished reasoning
         if not response.tool_calls:
-            _emit_log("✍️ Generating final response...")
+            mw.on_final_response()
             break
 
-        # Execute tool calls
-        for tc in response.tool_calls:
-            _emit_log(f"🔧 Calling tool: {tc['name']}")
-        tool_messages = await _execute_tool_calls(response.tool_calls)
+        tool_messages = await _execute_tool_calls(response.tool_calls, mw)
         messages.extend(tool_messages)
         loop_messages.extend(tool_messages)
 
-    # Extract text from the final response
     final_text = _extract_text(response.content) if response else ""
 
-    # Fallback: if LLM returned empty text in the last
-    # response, scan backwards through messages for the last substantive
-    # AI text (skipping tool-call-only and system messages).
     if not final_text.strip() and len(messages) > 1:
         for msg in reversed(messages[:-1]):
             if hasattr(msg, "content") and not getattr(msg, "tool_calls", None):
@@ -239,102 +196,87 @@ async def _run_react_loop(
     return (
         final_text if final_text.strip() else "Analysis could not be completed.",
         loop_messages,
-        token_records,
+        mw.token_records,
     )
-
-
-def _extract_text(content: Any) -> str:
-    """Extract plain text from LLM structured content format.
-
-    Content may be a plain string or a list of typed blocks.
-    This normalizes to a plain string, keeping only 'text' blocks.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict):
-                # Only keep explicit text blocks, skip thinking/signature
-                if block.get("type") == "text":
-                    text = block.get("text", "")
-                    if text.strip():  # skip empty text blocks
-                        parts.append(text)
-            elif isinstance(block, str):
-                if block.strip():
-                    parts.append(block)
-        return "\n".join(parts)
-    return str(content)
 
 
 # ── Agent node: Geopolitical Analyst ──────────────────────────────────
 async def geopolitical_analyst_node(state: AgentState) -> dict[str, Any]:
     """Geopolitical Analyst agent — assesses macro and geopolitical risks."""
-    _emit_log("🌍 Geopolitical Analyst starting...")
+    mw = AgentMiddleware(agent_name="geopolitical_analyst", log_queue=_log_queue)
+    mw.on_start("Geopolitical Analyst")
+
     llm = _get_llm(temperature=0.2, num_predict=4096)
     llm_with_tools = llm.bind_tools(GEOPOLITICAL_TOOLS)
 
-    final_content, new_messages, tokens = await _run_react_loop(
+    final_content, new_messages, _ = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=get_skill_prompt("geopolitical-analyst"),
         state_messages=state["messages"],
+        mw=mw,
         max_iterations=6,
     )
 
-    total_in = sum(t["input_tokens"] for t in tokens)
-    total_out = sum(t["output_tokens"] for t in tokens)
-    total_cached = sum(t["cached_tokens"] for t in tokens)
-    _emit_log(f"✅ Geopolitical done — {total_in:,} in / {total_out:,} out")
+    mw.on_done()
+    s = mw.summary()
     return {
         "messages": [AIMessage(content=f"[GEOPOLITICAL ANALYST]\n\n{final_content}", name="geopolitical_analyst")] + new_messages,
         "risk_signals": [{"agent": "geopolitical_analyst", "analysis": final_content}],
         "iteration_count": state.get("iteration_count", 0) + 1,
-        "token_usage": [{"agent": "geopolitical_analyst", "input": total_in, "output": total_out, "cached": total_cached}],
+        "token_usage": [{"agent": s["agent"], "input": s["input"], "output": s["output"], "cached": s["cached"]}],
     }
 
 
 # ── Agent node: Credit Risk Evaluator ─────────────────────────────────
 async def credit_evaluator_node(state: AgentState) -> dict[str, Any]:
     """Credit Risk Evaluator agent — performs fundamental credit analysis."""
-    _emit_log("💳 Credit Evaluator starting...")
+    mw = AgentMiddleware(agent_name="credit_evaluator", log_queue=_log_queue)
+    mw.on_start("Credit Evaluator")
+
     llm = _get_llm(temperature=0.1, num_predict=4096)
     llm_with_tools = llm.bind_tools(CREDIT_TOOLS)
 
-    final_content, new_messages, tokens = await _run_react_loop(
+    final_content, new_messages, _ = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=get_skill_prompt("credit-evaluator"),
         state_messages=state["messages"],
+        mw=mw,
         max_iterations=6,
     )
 
-    total_in = sum(t["input_tokens"] for t in tokens)
-    total_out = sum(t["output_tokens"] for t in tokens)
-    total_cached = sum(t["cached_tokens"] for t in tokens)
-    _emit_log(f"✅ Credit Evaluator done — {total_in:,} in / {total_out:,} out")
+    mw.on_done()
+    s = mw.summary()
     return {
         "messages": [AIMessage(content=f"[CREDIT RISK EVALUATOR]\n\n{final_content}", name="credit_evaluator")] + new_messages,
         "risk_signals": [{"agent": "credit_evaluator", "analysis": final_content}],
         "iteration_count": state.get("iteration_count", 0) + 1,
-        "token_usage": [{"agent": "credit_evaluator", "input": total_in, "output": total_out, "cached": total_cached}],
+        "token_usage": [{"agent": s["agent"], "input": s["input"], "output": s["output"], "cached": s["cached"]}],
     }
 
 
 # ── Agent node: Market Synthesizer ────────────────────────────────────
 async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
     """Market Synthesizer agent — produces the final integrated risk report."""
-    _emit_log("📊 Market Synthesizer starting...")
+    mw = AgentMiddleware(agent_name="market_synthesizer", log_queue=_log_queue)
+    mw.on_start("Market Synthesizer")
+
     llm = _get_llm(temperature=0.15, num_predict=8192)
     llm_with_tools = llm.bind_tools(SYNTHESIZER_TOOLS)
 
-    # Inject today's date into the prompt
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     formatted_prompt = get_skill_prompt("market-synthesizer", today=today)
 
-    final_content, new_messages, tokens = await _run_react_loop(
+    # Inject persistent memory (previous analyses context)
+    memory = load_memory()
+    if memory.strip():
+        formatted_prompt += f"\n\n## Previous Analyses (Memory)\n{memory}"
+
+    final_content, new_messages, _ = await _run_react_loop(
         llm_with_tools=llm_with_tools,
         system_prompt=formatted_prompt,
         state_messages=state["messages"],
+        mw=mw,
         max_iterations=4,
     )
 
@@ -344,15 +286,20 @@ async def market_synthesizer_node(state: AgentState) -> dict[str, Any]:
         idx = final_content.index(report_marker)
         final_content = final_content[idx:]
 
-    total_in = sum(t["input_tokens"] for t in tokens)
-    total_out = sum(t["output_tokens"] for t in tokens)
-    total_cached = sum(t["cached_tokens"] for t in tokens)
-    _emit_log(f"✅ Synthesizer done — {total_in:,} in / {total_out:,} out")
+    # Parse free-text report into structured RiskReport
+    structured = parse_report_to_structured(final_content)
+    mw.on_structured_report(structured.entity, structured.overall_score, structured.credit_rating)
+
+    # Persist to memory for cross-session continuity
+    update_memory(structured.entity, structured.to_scores_dict(), today)
+
+    mw.on_done()
+    s = mw.summary()
     return {
         "messages": [AIMessage(content=f"[MARKET SYNTHESIZER]\n\n{final_content}", name="market_synthesizer")] + new_messages,
         "risk_signals": [{"agent": "market_synthesizer", "analysis": final_content}],
         "final_report": final_content,
+        "structured_report": structured.model_dump(),
         "iteration_count": state.get("iteration_count", 0) + 1,
-        "token_usage": [{"agent": "market_synthesizer", "input": total_in, "output": total_out, "cached": total_cached}],
+        "token_usage": [{"agent": s["agent"], "input": s["input"], "output": s["output"], "cached": s["cached"]}],
     }
-
