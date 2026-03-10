@@ -4,17 +4,17 @@ langchain-core
 langchain-ollama
 langchain-google-genai
 langchain-community
-langchain-chroma
 langgraph-checkpoint-redis
 redis
 asyncio
+# PostgreSQL + pgvector
+psycopg[binary]
 # Tools
 ddgs==9.11.1
 yfinance==0.2.54
 pydantic==2.10.6
 loguru
 python-dotenv
-chromadb
 streamlit
 plotly
 pypdf
@@ -22,6 +22,9 @@ rank_bm25
 requests
 pyyaml
 tomli;python_version<"3.11"
-# Optional fallback (only needed if embeddings.default = "huggingface")
+# Optional fallback: ChromaDB (only needed without DATABASE_URL)
+# langchain-chroma
+# chromadb
+# Optional fallback: HuggingFace embeddings (only needed if embeddings.default = "huggingface")
 # langchain-huggingface==1.2.1
 # sentence-transformers

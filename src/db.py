@@ -2,22 +2,34 @@
 Backward-compatible shim — re-exports from new DDD locations.
 
 app.py imports init_db, save_report, get_history_for_entity, save_feedback,
-get_source_feedback_score from here.
+get_source_feedback_score, DB_PATH from here.
+
+Automatically uses PostgreSQL if DATABASE_URL is set, otherwise SQLite.
 """
 
 import os
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-_DB_PATH = os.path.join(_PROJECT_ROOT, "data", "risk_history.db")
+DB_PATH = os.path.join(_PROJECT_ROOT, "data", "risk_history.db")
 
-from src.infrastructure.persistence.sqlite import SQLiteReportRepository, SQLiteFeedbackRepository
 
-_report_repo = SQLiteReportRepository(_DB_PATH)
-_feedback_repo = SQLiteFeedbackRepository(_DB_PATH)
+def _use_postgres() -> bool:
+    return bool(os.getenv("DATABASE_URL"))
+
+
+def _get_repos():
+    if _use_postgres():
+        from src.infrastructure.persistence.postgres import PostgresReportRepository, PostgresFeedbackRepository
+        return PostgresReportRepository(), PostgresFeedbackRepository()
+    from src.infrastructure.persistence.sqlite import SQLiteReportRepository, SQLiteFeedbackRepository
+    return SQLiteReportRepository(DB_PATH), SQLiteFeedbackRepository(DB_PATH)
+
+
+_report_repo, _feedback_repo = _get_repos()
 
 
 def init_db():
-    """No-op — tables are created by SQLiteReportRepository.__init__."""
+    """No-op — tables are created by repository __init__."""
     pass
 
 

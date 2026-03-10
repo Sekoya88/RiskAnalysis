@@ -46,10 +46,10 @@ src/
 ├── infrastructure/         # Concrete adapter implementations
 │   ├── llm/                # OllamaLLMAdapter, GeminiLLMAdapter, factory
 │   ├── embeddings/         # OllamaEmbeddingAdapter (embeddinggemma), HuggingFace fallback
-│   ├── vector_store/       # ChromaVectorStoreAdapter
+│   ├── vector_store/       # PgVectorStoreAdapter, ChromaDB fallback
 │   ├── retrieval/          # HybridRetriever (RRF fusion)
 │   ├── data_sources/       # YahooFinanceAdapter, DuckDuckGoAdapter
-│   ├── persistence/        # SQLite (reports + RL feedback), Redis, file memory
+│   ├── persistence/        # PostgreSQL / SQLite (reports + RL feedback), Redis, file memory
 │   ├── skills/             # SKILL.md loader (YAML frontmatter + Markdown)
 │   └── config/             # TOML config loader (deepagents.toml)
 │
@@ -57,7 +57,7 @@ src/
 └── main.py                 # CLI entrypoint
 ```
 
-Every infrastructure component is hidden behind a **Port** (Python Protocol). Swapping Ollama for OpenAI, ChromaDB for Pinecone, or SQLite for Postgres requires only a new adapter -- no domain or application code changes.
+Every infrastructure component is hidden behind a **Port** (Python Protocol). Swapping Ollama for OpenAI, or PostgreSQL for another database, requires only a new adapter — no domain or application code changes.
 
 ## Multi-Agent Flow
 
@@ -84,7 +84,7 @@ Each agent accesses specific tools equipped with strict Pydantic schemas.
 
 - **Market Data:** Fetched in real-time via Yahoo Finance (`yfinance`).
 - **News/Web Search:** Aggregated using DuckDuckGo (`ddgs`).
-- **Hybrid RAG:** A custom retrieval pipeline using ChromaDB (semantic search) and BM25 (keyword search). The results are fused using Reciprocal Rank Fusion (RRF). Seed PDFs are located in `data/docs/`.
+- **Hybrid RAG:** A custom retrieval pipeline using **pgvector** (semantic search via PostgreSQL) and BM25 (keyword search). The results are fused using Reciprocal Rank Fusion (RRF). Seed PDFs are located in `data/docs/`.
 
 ## Embeddings
 
@@ -101,8 +101,9 @@ default = "huggingface"  # instead of "ollama"
 
 ## Persistence & RL Feedback Loop
 
+- **PostgreSQL + pgvector:** All reports, news sources, RL feedback, and vector embeddings are stored in a single **PostgreSQL** instance with the `pgvector` extension. This replaces the previous SQLite + ChromaDB setup. When `DATABASE_URL` is not set, the system falls back to SQLite automatically.
 - **State Checkpointing:** The LangGraph state is continuously saved to **Redis** via `langgraph-checkpoint-redis`. This allows for long-running workflows to be paused, resumed, or debugged.
-- **Reinforcement Learning (RL):** A local SQLite database (`data/risk_history.db`) acts as the ML Feedback Loop backend. In the Streamlit UI, users can vote "Useful" or "Poor" on the news sources the AI used. These votes adjust the `rl_weight` of those sources dynamically. Combined with a time decay algorithm (newer articles get a bonus), the system continuously learns which sources yield the best risk reports.
+- **Reinforcement Learning (RL):** In the Streamlit UI, users can vote "Useful" or "Poor" on the news sources the AI used. These votes adjust the `rl_weight` of those sources dynamically. Combined with a time decay algorithm (newer articles get a bonus), the system continuously learns which sources yield the best risk reports.
 
 ## Configuration
 
@@ -119,8 +120,7 @@ default = "ollama"                    # or "huggingface"
 model = "embeddinggemma"
 
 [vector_store]
-provider = "chroma"
-persist_directory = "data/chroma_db"
+provider = "pgvector"              # or "chroma" (local fallback)
 
 [retrieval]
 strategy = "hybrid"
@@ -150,10 +150,16 @@ Install Python dependencies:
 pip install -r requirements.txt
 ```
 
-*(Optional)* Start the Redis backend (required for persistent LangGraph checkpointing):
+Start infrastructure services (PostgreSQL + Redis):
 
 ```sh
-docker compose up redis -d
+just services
+```
+
+Or manually:
+
+```sh
+docker compose up postgres redis -d
 ```
 
 Pull the required Ollama models:
@@ -174,7 +180,7 @@ just dev
 Or manually:
 
 ```sh
-streamlit run app.py
+python3 -m streamlit run app.py
 ```
 
 To use Gemini, select it from the sidebar dropdown and either:
@@ -188,6 +194,7 @@ To use Gemini, select it from the sidebar dropdown and either:
 | `GOOGLE_API_KEY` | Gemini | Your Google AI API key |
 | `OLLAMA_MODEL` | Ollama | Model name (e.g. `qwen3.5`, `lfm2`) |
 | `OLLAMA_BASE_URL` | Ollama | Base URL (default: `http://localhost:11434`) |
+| `DATABASE_URL` | PostgreSQL | Connection string (default: `postgresql://risk:riskpass@localhost:5432/riskanalysis`) |
 | `REDIS_URL` | Redis checkpointing | Redis connection string (default: `redis://localhost:6379`) |
 
 ## License

@@ -28,9 +28,10 @@ def extract_text(content: Any) -> str:
     return str(content)
 
 
-def strip_report_preamble(content: str, marker: str = "═══") -> str:
+def strip_report_preamble(content: str) -> str:
     """Strip any LLM preamble before the structured report marker."""
-    if marker in content:
-        idx = content.index(marker)
-        return content[idx:]
+    for marker in ("═══", "==="):
+        if marker in content:
+            idx = content.index(marker)
+            return content[idx:]
     return content

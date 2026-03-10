@@ -20,11 +20,9 @@ from pydantic import BaseModel, Field
 
 from src.infrastructure.config.providers import get_embedding_config, get_vector_store_config, get_retrieval_config
 from src.infrastructure.embeddings.factory import create_embeddings
-from src.infrastructure.vector_store.chroma import ChromaVectorStoreAdapter
 from src.infrastructure.retrieval.hybrid import HybridRetriever
 from src.infrastructure.data_sources.yahoo_finance import YahooFinanceAdapter
 from src.infrastructure.data_sources.duckduckgo import DuckDuckGoAdapter
-from src.infrastructure.persistence.sqlite import SQLiteReportRepository, SQLiteFeedbackRepository
 from src.infrastructure.persistence.memory import FileMemoryAdapter
 
 # ── Resolve project paths ──────────────────────────────────────────
@@ -36,8 +34,8 @@ _DOCS_DIR = os.path.join(_DATA_DIR, "docs")
 _MEMORY_PATH = os.path.join(_DATA_DIR, "AGENTS.md")
 
 # ── Singleton adapters (lazily initialized) ─────────────────────────
-_report_repo: SQLiteReportRepository | None = None
-_feedback_repo: SQLiteFeedbackRepository | None = None
+_report_repo: Any = None
+_feedback_repo: Any = None
 _memory_adapter: FileMemoryAdapter | None = None
 _market_adapter: YahooFinanceAdapter | None = None
 _news_adapter: DuckDuckGoAdapter | None = None
@@ -45,17 +43,32 @@ _hybrid_retriever: HybridRetriever | None = None
 _bootstrapped = False
 
 
-def get_report_repo() -> SQLiteReportRepository:
+def _use_postgres() -> bool:
+    """Check if PostgreSQL is configured (DATABASE_URL set)."""
+    return bool(os.getenv("DATABASE_URL"))
+
+
+def get_report_repo() -> Any:
     global _report_repo
     if _report_repo is None:
-        _report_repo = SQLiteReportRepository(_DB_PATH)
+        if _use_postgres():
+            from src.infrastructure.persistence.postgres import PostgresReportRepository
+            _report_repo = PostgresReportRepository()
+        else:
+            from src.infrastructure.persistence.sqlite import SQLiteReportRepository
+            _report_repo = SQLiteReportRepository(_DB_PATH)
     return _report_repo
 
 
-def get_feedback_repo() -> SQLiteFeedbackRepository:
+def get_feedback_repo() -> Any:
     global _feedback_repo
     if _feedback_repo is None:
-        _feedback_repo = SQLiteFeedbackRepository(_DB_PATH)
+        if _use_postgres():
+            from src.infrastructure.persistence.postgres import PostgresFeedbackRepository
+            _feedback_repo = PostgresFeedbackRepository()
+        else:
+            from src.infrastructure.persistence.sqlite import SQLiteFeedbackRepository
+            _feedback_repo = SQLiteFeedbackRepository(_DB_PATH)
     return _feedback_repo
 
 
@@ -87,12 +100,22 @@ def get_hybrid_retriever() -> HybridRetriever:
         ret_config = get_retrieval_config()
 
         embedding = create_embeddings()
-        vector_store = ChromaVectorStoreAdapter(
-            embedding=embedding,
-            persist_directory=vs_config.get("persist_directory", _CHROMA_DIR),
-            collection_name=vs_config.get("collection_name", "corporate_disclosures"),
-            docs_directory=_DOCS_DIR,
-        )
+
+        if _use_postgres():
+            from src.infrastructure.vector_store.pgvector import PgVectorStoreAdapter
+            vector_store = PgVectorStoreAdapter(
+                embedding=embedding,
+                table_name=vs_config.get("collection_name", "corporate_disclosures"),
+                docs_directory=_DOCS_DIR,
+            )
+        else:
+            from src.infrastructure.vector_store.chroma import ChromaVectorStoreAdapter
+            vector_store = ChromaVectorStoreAdapter(
+                embedding=embedding,
+                persist_directory=vs_config.get("persist_directory", _CHROMA_DIR),
+                collection_name=vs_config.get("collection_name", "corporate_disclosures"),
+                docs_directory=_DOCS_DIR,
+            )
         _hybrid_retriever = HybridRetriever(
             vector_store=vector_store,
             vector_weight=ret_config.get("vector_weight", 0.6),
