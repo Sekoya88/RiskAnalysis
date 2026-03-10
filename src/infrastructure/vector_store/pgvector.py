@@ -51,21 +51,45 @@ class PgVectorStoreAdapter:
         self._docs_directory = docs_directory
         self._initialized = False
 
+    def _detect_dimensions(self) -> int:
+        """Detect embedding dimensions by running a test embedding."""
+        test = self._embedding.embed_query("test")
+        return len(test)
+
     def _ensure_table(self) -> None:
         if self._initialized:
             return
 
+        dims = self._detect_dimensions()
+
         with psycopg.connect(self._dsn) as conn:
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+            # Check if table exists with wrong dimensions and recreate if needed
+            row = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s)",
+                (self._table_name,),
+            ).fetchone()
+            table_exists = row[0] if row else False
+
+            if table_exists:
+                # Check if column has correct dimensions
+                dim_row = conn.execute(
+                    "SELECT atttypmod FROM pg_attribute WHERE attrelid = %s::regclass AND attname = 'embedding'",
+                    (self._table_name,),
+                ).fetchone()
+                existing_dims = dim_row[0] if dim_row else -1
+                if existing_dims != dims:
+                    conn.execute(f"DROP TABLE IF EXISTS {self._table_name} CASCADE")
+
             conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self._table_name} (
                     id SERIAL PRIMARY KEY,
                     content TEXT NOT NULL,
-                    metadata JSONB DEFAULT '{{}}',
-                    embedding vector
+                    metadata JSONB DEFAULT '{{}}'::jsonb,
+                    embedding vector({dims})
                 )
             """)
-            # Create HNSW index for fast cosine similarity
             conn.execute(f"""
                 CREATE INDEX IF NOT EXISTS idx_{self._table_name}_embedding
                 ON {self._table_name}
