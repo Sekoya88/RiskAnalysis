@@ -46,9 +46,11 @@ model = "all-MiniLM-L6-v2"
 device = "cpu"
 
 # ── Vector Store ────────────────────────────────────────────────────
+# provider: "pgvector" (requires DATABASE_URL) or "chroma" (local fallback)
+# When DATABASE_URL is set, pgvector is used automatically regardless of this setting.
 
 [vector_store]
-provider = "chroma"
+provider = "pgvector"
 persist_directory = "data/chroma_db"
 collection_name = "corporate_disclosures"
 

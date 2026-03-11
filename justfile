@@ -3,13 +3,21 @@
 
 OLLAMA_MODEL := env("OLLAMA_MODEL", "qwen3.5")
 
-# Start everything (Redis + pull models + App)
-start: redis pull-all build
+# Start everything (Postgres + Redis + pull models + App)
+start: services pull-all build
     docker compose up app
+
+# Start infrastructure services (PostgreSQL + Redis)
+services:
+    docker compose up postgres redis -d
 
 # Start Redis only
 redis:
     docker compose up redis -d
+
+# Start PostgreSQL only
+postgres:
+    docker compose up postgres -d
 
 # Pull all supported models
 pull-all:
@@ -25,12 +33,12 @@ build:
     docker compose build app
 
 # Start Streamlit UI (local dev, no Docker for app)
-dev: redis pull-all
-    streamlit run app.py
+dev: services pull-all
+    python3 -m streamlit run app.py
 
 # Run CLI mode
 cli *ARGS: redis
-    OLLAMA_MODEL={{OLLAMA_MODEL}} python -m src.main {{ARGS}}
+    OLLAMA_MODEL={{OLLAMA_MODEL}} python3 -m src.main {{ARGS}}
 
 # Stop everything
 stop:

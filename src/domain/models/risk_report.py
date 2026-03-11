@@ -49,46 +49,65 @@ class RiskReport(BaseModel):
         }
 
 
+def _strip_markdown(text: str) -> str:
+    """Remove markdown bold/italic markers for cleaner regex matching."""
+    return re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", text)
+
+
 def parse_report_to_structured(report_text: str) -> RiskReport:
-    """Fallback parser: extract structured data from free-text report via regex."""
+    """Fallback parser: extract structured data from free-text report via regex.
+
+    Designed to be tolerant of LLM formatting variations (markdown bold,
+    extra whitespace, varying casing, colons vs dashes, etc.).
+    """
+    # Strip markdown formatting for reliable matching
+    clean = _strip_markdown(report_text)
 
     def _extract_int(pattern: str, text: str, default: int = 0) -> int:
-        m = re.search(pattern, text)
+        m = re.search(pattern, text, re.IGNORECASE)
         return int(m.group(1)) if m else default
 
     def _extract_str(pattern: str, text: str, default: str = "") -> str:
-        m = re.search(pattern, text)
+        m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else default
 
-    entity = _extract_str(r"ENTITY:\s*(.+)", report_text, "Unknown")
-    date = _extract_str(r"DATE:\s*(\d{4}-\d{2}-\d{2})", report_text)
+    entity = _extract_str(r"ENTITY:\s*(.+)", clean, "Unknown")
+    date = _extract_str(r"DATE:\s*(\d{4}-\d{2}-\d{2})", clean)
 
-    overall = _extract_int(r"OVERALL RISK SCORE:\s*(\d+)/100", report_text)
-    geo = _extract_int(r"Geopolitical Risk:\s*(\d+)/100", report_text)
-    credit = _extract_int(r"Credit/Financial:\s*(\d+)/100", report_text)
-    market = _extract_int(r"Market/Liquidity:\s*(\d+)/100", report_text)
-    esg = _extract_int(r"ESG/Transition:\s*(\d+)/100", report_text)
+    # Overall score: "OVERALL RISK SCORE: 42/100" or "Overall Risk Score: 42 / 100"
+    overall = _extract_int(r"OVERALL\s+RISK\s+SCORE\s*[:=\-—]\s*(\d+)\s*/\s*100", clean)
 
-    rating_str = _extract_str(r"INTERNAL CREDIT RATING:\s*(.+)", report_text, "N/A")
+    # Sub-scores: flexible patterns to handle LLM variations
+    # e.g. "Geopolitical Risk: 35/100", "- Geopolitical Risk — 35/100", "Geopolitical: 35 / 100"
+    geo = _extract_int(r"Geopolitical(?:\s+Risk)?\s*[:=\-—]+\s*(\d+)\s*/\s*100", clean)
+    credit = _extract_int(r"Credit(?:[/\s]*Financial)?\s*(?:Risk)?\s*[:=\-—]+\s*(\d+)\s*/\s*100", clean)
+    market = _extract_int(r"Market(?:[/\s]*Liquidity)?\s*(?:Risk)?\s*[:=\-—]+\s*(\d+)\s*/\s*100", clean)
+    esg = _extract_int(r"ESG(?:[/\s]*Transition)?\s*(?:Risk)?\s*[:=\-—]+\s*(\d+)\s*/\s*100", clean)
+
+    # Credit rating: "INTERNAL CREDIT RATING: BBB+ / Stable" or "Credit Rating: BBB+"
+    rating_str = _extract_str(
+        r"(?:INTERNAL\s+)?CREDIT\s+RATING\s*[:=\-—]+\s*(.+)", clean, "N/A"
+    )
     parts = [p.strip() for p in rating_str.split("/")]
     credit_rating = parts[0] if parts else "N/A"
     credit_outlook = parts[1] if len(parts) > 1 else "Stable"
 
     risk_factors: list[str] = []
     factors_match = re.search(
-        r"KEY RISK FACTORS.*?\n((?:\d+\..+\n?)+)", report_text, re.DOTALL
+        r"KEY RISK FACTORS.*?\n((?:[\s]*\d+\..+\n?)+)", clean, re.DOTALL | re.IGNORECASE
     )
     if factors_match:
         for line in factors_match.group(1).strip().split("\n"):
-            cleaned = re.sub(r"^\d+\.\s*", "", line).strip()
+            cleaned = re.sub(r"^\s*\d+\.\s*", "", line).strip()
             if cleaned:
                 risk_factors.append(cleaned)
 
     scenarios: list[Scenario] = []
     for label in ["BULL", "BASE", "BEAR"]:
         m = re.search(
-            rf"{label}\s+CASE\s*\((\d+)%\s*probability\):\s*(.+?)(?:\n|$)",
-            report_text,
+            rf"{label}\s+CASE\s*\((\d+)%\s*probability\)\s*[:=\-—]*\s*(.+?)(?:\n|$)",
+            clean,
+            re.IGNORECASE,
         )
         if m:
             scenarios.append(
@@ -96,10 +115,12 @@ def parse_report_to_structured(report_text: str) -> RiskReport:
             )
 
     recommendations: list[str] = []
-    rec_match = re.search(r"RECOMMENDATIONS.*?\n((?:\d+\..+\n?)+)", report_text, re.DOTALL)
+    rec_match = re.search(
+        r"RECOMMENDATIONS.*?\n((?:[\s]*\d+\..+\n?)+)", clean, re.DOTALL | re.IGNORECASE
+    )
     if rec_match:
         for line in rec_match.group(1).strip().split("\n"):
-            cleaned = re.sub(r"^\d+\.\s*", "", line).strip()
+            cleaned = re.sub(r"^\s*\d+\.\s*", "", line).strip()
             if cleaned:
                 recommendations.append(cleaned)
 

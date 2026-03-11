@@ -1,5 +1,24 @@
 services:
-  # ── Redis — Fault-tolerant state management & checkpointing ───────
+  # ── PostgreSQL + pgvector — Persistence & vector store ────────────
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: risk-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: riskanalysis
+      POSTGRES_USER: risk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-riskpass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U risk -d riskanalysis" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis — LangGraph state checkpointing ────────────────────────
   redis:
     image: redis/redis-stack-server:latest
     container_name: risk-redis
@@ -23,8 +42,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://risk:${POSTGRES_PASSWORD:-riskpass}@postgres:5432/riskanalysis
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5}
       - PYTHONPATH=/app
@@ -37,4 +59,6 @@ services:
 
 volumes:
   redis_data:
+    driver: local
+  postgres_data:
     driver: local
