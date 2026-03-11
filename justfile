@@ -36,6 +36,10 @@ build:
 dev: services pull-all
     python3 -m streamlit run app.py
 
+# Re-ingest RAG docs from data/docs/ into pgvector (requires DATABASE_URL + Ollama embeddinggemma)
+reseed-rag:
+    python3 -c "from dotenv import load_dotenv; load_dotenv(); from src.container import reseed_rag_documents; n = reseed_rag_documents(); print(f'Reseeded: {n} chunks')"
+
 # Run CLI mode
 cli *ARGS: redis
     OLLAMA_MODEL={{OLLAMA_MODEL}} python3 -m src.main {{ARGS}}

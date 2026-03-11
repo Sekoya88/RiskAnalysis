@@ -205,6 +205,15 @@ class PgVectorStoreAdapter:
 
         return results
 
+    def reseed(self) -> int:
+        """Drop table and re-ingest documents from docs_directory. Returns doc count."""
+        with psycopg.connect(self._dsn) as conn:
+            conn.execute(f"DROP TABLE IF EXISTS {self._table_name} CASCADE")
+            conn.commit()
+        self._initialized = False
+        self._ensure_table()
+        return self._count()
+
     def get(self, include: list[str] | None = None) -> dict:
         """Get all documents (for BM25 index building)."""
         self._ensure_table()

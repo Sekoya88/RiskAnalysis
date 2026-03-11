@@ -125,6 +125,24 @@ def get_hybrid_retriever() -> HybridRetriever:
     return _hybrid_retriever
 
 
+def reseed_rag_documents() -> int:
+    """Drop pgvector table and re-ingest PDFs from data/docs/. Returns doc count.
+    Use when switching from ChromaDB or when docs are empty/corrupt."""
+    global _hybrid_retriever
+    if not _use_postgres():
+        raise RuntimeError("reseed_rag_documents requires DATABASE_URL (pgvector)")
+    _hybrid_retriever = None
+    vs_config = get_vector_store_config()
+    embedding = create_embeddings()
+    from src.infrastructure.vector_store.pgvector import PgVectorStoreAdapter
+    adapter = PgVectorStoreAdapter(
+        embedding=embedding,
+        table_name=vs_config.get("collection_name", "corporate_disclosures"),
+        docs_directory=_DOCS_DIR,
+    )
+    return adapter.reseed()
+
+
 # ── LangChain Tool Schemas ──────────────────────────────────────────
 
 class GetMarketDataInput(BaseModel):

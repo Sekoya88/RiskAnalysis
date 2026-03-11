@@ -749,6 +749,17 @@ with st.sidebar:
         disabled=st.session_state.running or not query.strip() or (selected_model.startswith("gemini") and not api_key),
     )
 
+    # RAG reseed (pgvector only)
+    if os.getenv("DATABASE_URL"):
+        if st.button("Re-ingest RAG docs", help="Re-import PDFs from data/docs/ into pgvector"):
+            try:
+                from src.container import reseed_rag_documents
+                count = reseed_rag_documents()
+                st.toast(f"RAG reseeded: {count} chunks indexed.", icon="✅")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Reseed failed: {e}")
+
     st.markdown("---")
 
     # History
@@ -1180,8 +1191,7 @@ def _render_sources(sources: dict, report_id: str = None):
 
             elif key == "rag":
                 st.caption(
-                    "⚠️ Static seed documents (2026). "
-                    "To update, add your own files to the ChromaDB vector store."
+                    "Documents from data/docs/ (pgvector). Use sidebar 'Re-ingest RAG docs' to refresh."
                 )
                 for doc in sources["rag"]:
                     source_name = html_mod.escape(doc.get("source", ""))
