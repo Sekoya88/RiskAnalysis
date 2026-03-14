@@ -33,17 +33,19 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ── Risk Analysis Application ─────────────────────────────────────
-  app:
+  # ── Risk Analysis Backend API ─────────────────────────────────────
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: risk-analysis
+    container_name: risk-api
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    ports:
+      - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://risk:${POSTGRES_PASSWORD:-riskpass}@postgres:5432/riskanalysis
@@ -53,9 +55,7 @@ services:
     volumes:
       - ./output:/app/output
       - ./data:/app/data
-    stdin_open: true
-    tty: true
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   redis_data:
