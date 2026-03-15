@@ -148,6 +148,9 @@ async def _execute_graph(graph, initial_state, config):
     structured_report = None
 
     try:
+        from src.domain.services.risk_scoring import compute_rl_weight
+        from src.db import get_source_feedback_score
+        
         snapshot = await graph.aget_state(config)
         if snapshot and snapshot.values:
             raw = snapshot.values.get("final_report", "")
@@ -185,17 +188,33 @@ async def _execute_graph(graph, initial_state, config):
                             "date": article.get("date", ""),
                         }
                         if entry["title"] and entry not in sources["news"]:
+                            # Compute RL Score
+                            try:
+                                base_score = get_source_feedback_score(entry["url"])
+                                rl_weight = compute_rl_weight(base_score, entry["date"])
+                                entry["score"] = rl_weight
+                            except Exception:
+                                pass
                             sources["news"].append(entry)
 
                 elif "results" in data and "articles" not in data:
                     for result in data["results"]:
+                        date_val = result.get("published_date", "")
+                        if not date_val:
+                            date_val = result.get("date", "")
                         entry = {
                             "title": result.get("title", ""),
                             "url": result.get("href", ""),
                             "source": "Web",
-                            "date": "",
+                            "date": date_val,
                         }
                         if entry["title"] and entry not in sources["news"]:
+                            try:
+                                base_score = get_source_feedback_score(entry["url"])
+                                rl_weight = compute_rl_weight(base_score, entry["date"])
+                                entry["score"] = rl_weight
+                            except Exception:
+                                pass
                             sources["news"].append(entry)
 
                 elif "market_snapshot" in data or "company" in data:
@@ -219,6 +238,15 @@ async def _execute_graph(graph, initial_state, config):
                         }
                         if entry["source"] and entry not in sources["rag"]:
                             sources["rag"].append(entry)
+
+            # Sort by score descending and limit to 10
+            if sources["news"]:
+                sources["news"].sort(key=lambda x: x.get("score", 0), reverse=True)
+                sources["news"] = sources["news"][:10]
+                
+            if sources["rag"]:
+                sources["rag"].sort(key=lambda x: x.get("score", 0), reverse=True)
+                sources["rag"] = sources["rag"][:10]
 
             token_usage = snapshot.values.get("token_usage", [])
             structured_report = snapshot.values.get("structured_report")

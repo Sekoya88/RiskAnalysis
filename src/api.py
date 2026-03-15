@@ -94,7 +94,7 @@ async def websocket_endpoint(websocket: WebSocket):
 class AnalyzeRequest(BaseModel):
     query: str = Field(..., description="The risk analysis query.")
     use_redis: bool = Field(default=True, description="Use Redis for LangGraph state checkpointer.")
-    model: str = Field(default="qwen3.5", description="Model to use (qwen3.5, lfm2, gemini-2.5-flash).")
+    model: str = Field(default="qwen3.5", description="Model to use.")
 
 class FeedbackRequest(BaseModel):
     report_id: str
