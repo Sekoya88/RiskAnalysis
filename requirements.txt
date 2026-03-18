@@ -15,8 +15,9 @@ yfinance==0.2.54
 pydantic==2.10.6
 loguru
 python-dotenv
-streamlit
-plotly
+fastapi
+uvicorn[standard]
+websockets
 pypdf
 rank_bm25
 requests

@@ -3,9 +3,9 @@
 
 OLLAMA_MODEL := env("OLLAMA_MODEL", "qwen3.5")
 
-# Start everything (Postgres + Redis + pull models + App)
+# Start everything (Postgres + Redis + pull models + API)
 start: services pull-all build
-    docker compose up app
+    docker compose up api
 
 # Start infrastructure services (PostgreSQL + Redis)
 services:
@@ -28,13 +28,13 @@ pull-all:
 pull model="qwen3.5":
     ollama pull {{model}}
 
-# Build the app image
+# Build the API image
 build:
-    docker compose build app
+    docker compose build api
 
-# Start Streamlit UI (local dev, no Docker for app)
+# Start FastAPI server (local dev, no Docker for app)
 dev: services pull-all
-    python3 -m streamlit run app.py
+    uvicorn src.api:app --reload
 
 # Re-ingest RAG docs from data/docs/ into pgvector (requires DATABASE_URL + Ollama embeddinggemma)
 reseed-rag:
@@ -54,4 +54,4 @@ clean:
 
 # Show logs
 logs:
-    docker compose logs -f app
+    docker compose logs -f api
