@@ -1,10 +1,9 @@
 import asyncio
-import json
 import os
 import queue
 import time
 import uuid
-from typing import Any
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,28 +13,13 @@ from loguru import logger
 
 from src.main import run_analysis
 from src.agents.nodes import set_log_queue
+from src.infrastructure.observability.langfuse_tracer import get_langfuse_handler, shutdown_langfuse
 import src.db as db
 
-app = FastAPI(
-    title="RiskAnalysis Agentic API",
-    description="API for the multi-agent Risk Assessment framework.",
-    version="1.0.0",
-)
-
-# ── CORS ─────────────────────────────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify the frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ── WebSocket Manager for Live Logs ──────────────────────────────────
-# In a true multi-tenant environment, you would manage a dict of queues
-# per thread_id. Here, we adapt the existing global queue for the demo.
-log_queue = queue.Queue(maxsize=1000)
+log_queue: queue.Queue = queue.Queue(maxsize=1000)
 set_log_queue(log_queue)
+
 
 class ConnectionManager:
     def __init__(self):
@@ -56,13 +40,14 @@ class ConnectionManager:
             except Exception:
                 pass
 
+
 manager = ConnectionManager()
 
+
 async def log_broadcaster():
-    """Background task to read from queue and broadcast to WebSockets."""
+    """Background task: drain log_queue and broadcast to all WebSocket clients."""
     while True:
         try:
-            # Non-blocking get using asyncio
             msg = await asyncio.to_thread(log_queue.get, timeout=0.1)
             await manager.broadcast(msg)
             log_queue.task_done()
@@ -72,11 +57,35 @@ async def log_broadcaster():
             logger.error(f"Broadcaster error: {e}")
             await asyncio.sleep(1)
 
-@app.on_event("startup")
-async def startup_event():
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     db.init_db()
     asyncio.create_task(log_broadcaster())
     logger.info("FastAPI Server Started - Log broadcaster running.")
+    yield
+    shutdown_langfuse()
+    logger.info("Langfuse flushed — shutdown complete.")
+
+
+app = FastAPI(
+    title="RiskAnalysis Agentic API",
+    description="API for the multi-agent Risk Assessment framework.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# ── CORS ─────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── WebSocket ─────────────────────────────────────────────────────────
 
 @app.websocket("/api/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -84,10 +93,10 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            # Client can send messages, e.g., ping/pong or thread_id registration
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
 
 # ── REST Endpoints ───────────────────────────────────────────────────
 
@@ -96,44 +105,58 @@ class AnalyzeRequest(BaseModel):
     use_redis: bool = Field(default=True, description="Use Redis for LangGraph state checkpointer.")
     model: str = Field(default="qwen3.5", description="Model to use.")
 
+
 class FeedbackRequest(BaseModel):
     report_id: str
     url: str
     is_helpful: bool
 
+
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     """
     Run a full multi-agent risk analysis.
-    This is a blocking request that waits for the LangGraph pipeline to finish.
-    For live updates, clients should connect to the /api/ws/stream WebSocket.
+    Blocking — waits for the LangGraph pipeline to finish.
+    For live updates connect to /api/ws/stream WebSocket.
     """
     os.environ["OLLAMA_MODEL"] = req.model
     thread_id = str(uuid.uuid4())
-    
-    # Broadcast start event
-    await manager.broadcast({"type": "status", "message": f"Starting analysis for: {req.query}", "thread_id": thread_id})
+
+    # One Langfuse handler per request → clean trace isolation
+    langfuse_handler = get_langfuse_handler(session_id=thread_id)
+
+    await manager.broadcast({
+        "type": "status",
+        "message": f"Starting analysis for: {req.query}",
+        "thread_id": thread_id,
+    })
     start_time = time.time()
-    
+
     try:
         report, sources, token_usage, structured_report = await run_analysis(
-            query=req.query, use_redis=req.use_redis, thread_id=thread_id
+            query=req.query,
+            use_redis=req.use_redis,
+            thread_id=thread_id,
+            langfuse_handler=langfuse_handler,
         )
-        
-        # Save to PostgreSQL / SQLite
+
         try:
             db.save_report(
                 report_id=thread_id,
-                entity=req.query[:50],  # Simplified entity extraction
-                scores={"overall": 0, "geopolitical": 0, "credit": 0, "market": 0, "esg": 0}, # Would be extracted
+                entity=req.query[:50],
+                scores={"overall": 0, "geopolitical": 0, "credit": 0, "market": 0, "esg": 0},
                 report_text=report,
-                sources=sources
+                sources=sources,
             )
         except Exception as e:
             logger.error(f"Failed to save report to DB: {e}")
 
         elapsed = time.time() - start_time
-        await manager.broadcast({"type": "status", "message": f"Analysis complete in {elapsed:.1f}s", "thread_id": thread_id})
+        await manager.broadcast({
+            "type": "status",
+            "message": f"Analysis complete in {elapsed:.1f}s",
+            "thread_id": thread_id,
+        })
 
         return {
             "status": "success",
@@ -142,12 +165,13 @@ async def analyze(req: AnalyzeRequest):
             "sources": sources,
             "token_usage": token_usage,
             "structured_report": structured_report,
-            "elapsed_seconds": round(elapsed, 2)
+            "elapsed_seconds": round(elapsed, 2),
         }
     except Exception as e:
         logger.exception("Analysis failed")
         await manager.broadcast({"type": "error", "message": str(e), "thread_id": thread_id})
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/feedback")
 async def submit_feedback(req: FeedbackRequest):
@@ -159,11 +183,12 @@ async def submit_feedback(req: FeedbackRequest):
         logger.error(f"Failed to save feedback: {e}")
         raise HTTPException(status_code=500, detail="Failed to save feedback")
 
+
 @app.get("/api/reports")
 async def get_reports():
     """Retrieve history of generated reports."""
-    # This would ideally query the postgres database or the output directory
     return {"message": "Endpoint available for historical reports."}
+
 
 if __name__ == "__main__":
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

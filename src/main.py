@@ -54,6 +54,7 @@ async def run_analysis(
     query: str,
     use_redis: bool = False,
     thread_id: str | None = None,
+    langfuse_handler: object | None = None,
 ) -> tuple[str, dict, list, dict | None]:
     """Execute a full multi-agent risk analysis."""
     from src.container import bootstrap
@@ -100,7 +101,7 @@ async def run_analysis(
                 logger.info(f"Query: {query[:100]}...")
                 logger.info(f"Thread ID: {thread_id}")
                 logger.info("State Backend: Redis")
-                return await _execute_graph(graph, initial_state, config)
+                return await _execute_graph(graph, initial_state, config, langfuse_handler)
         except Exception as e:
             logger.warning(f"Redis failed ({e}). Falling back to in-memory state.")
 
@@ -112,17 +113,22 @@ async def run_analysis(
     logger.info(f"Query: {query[:100]}...")
     logger.info(f"Thread ID: {thread_id}")
     logger.info(f"State Backend: {backend_label}")
-    return await _execute_graph(graph, initial_state, config)
+    return await _execute_graph(graph, initial_state, config, langfuse_handler)
 
 
-async def _execute_graph(graph, initial_state, config):
+async def _execute_graph(graph, initial_state, config, langfuse_handler=None):
     """Run the graph and extract report + sources."""
     from src.domain.services.report_builder import extract_text
     from langchain_core.messages import ToolMessage as _ToolMessage
 
     start_time = time.time()
 
-    async for event in graph.astream(initial_state, config=config):
+    from src.infrastructure.observability.langfuse_tracer import build_langfuse_config
+    thread_id = config.get("configurable", {}).get("thread_id")
+    model = os.getenv("OLLAMA_MODEL", "unknown")
+    stream_config = build_langfuse_config(config, session_id=thread_id, handler=langfuse_handler, model=model)
+
+    async for event in graph.astream(initial_state, config=stream_config):
         for node_name, node_output in event.items():
             elapsed = time.time() - start_time
             logger.info(f"[{elapsed:.1f}s] Node: {node_name}")

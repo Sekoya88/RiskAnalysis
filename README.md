@@ -138,6 +138,44 @@ just dev
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000) with your browser to use the application. The frontend automatically connects to the backend API and WebSocket for live streaming.
 
+## Observability
+
+The framework ships with dual observability out of the box.
+
+### Langfuse (self-hosted, open-source)
+
+Tracks every LLM call with token counts, costs, and session grouping. Runs entirely locally — no data leaves your machine.
+
+```sh
+docker compose up langfuse -d
+# UI → http://localhost:3001
+# Create a project, copy the keys into .env (LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY)
+```
+
+> **Note:** Uses a custom `LangfuseV2Callback` (compatible with Langfuse server v2.x OSS).
+> The official SDK v3/v4 sends traces via OpenTelemetry which is only supported by Langfuse server v3+.
+
+### LangSmith (cloud, LangChain native)
+
+Traces the full LangGraph execution graph: every node, edge, LLM call, and tool call — automatically, with zero extra code.
+
+```sh
+# 1. Get a key at https://smith.langchain.com → Settings → API Keys
+# 2. In .env:
+LANGCHAIN_TRACING_V2=true
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_PROJECT=RiskAnalysis
+```
+
+|                          | Langfuse                  | LangSmith                        |
+| ------------------------ | ------------------------- | -------------------------------- |
+| **Hosting**              | Self-hosted (free)        | Cloud (free tier)                |
+| **Integration**          | Custom callback           | Native LangChain env vars        |
+| **LangGraph visibility** | LLM calls only            | Full graph: nodes, edges, states |
+| **Best for**             | Production, privacy       | Debugging, evaluation            |
+
+---
+
 ## License
 
 This project is licensed under the MIT License.
