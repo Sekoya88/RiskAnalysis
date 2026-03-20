@@ -1,0 +1,8 @@
+.env
+venv/
+__pycache__/
+*.pyc
+.git/
+output/
+data/chroma_db/
+data/risk_history.db
