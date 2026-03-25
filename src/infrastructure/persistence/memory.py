@@ -1,4 +1,4 @@
-"""Infrastructure — File-based agent memory (AGENTS.md)."""
+"""Infrastructure — File-based agent memory (data/agent_memory.md)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ MAX_RECENT_ANALYSES = 10
 
 
 class FileMemoryAdapter:
-    """MemoryPort implementation backed by a Markdown file (AGENTS.md)."""
+    """MemoryPort implementation backed by a Markdown file."""
 
     def __init__(self, memory_path: str):
         self._path = memory_path

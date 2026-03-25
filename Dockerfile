@@ -8,8 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
-COPY requirements.txt .
+COPY requirements.txt requirements-rl.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Optional PPO (torch): docker build --build-arg INSTALL_PPO=1 .
+ARG INSTALL_PPO=0
+RUN if [ "$INSTALL_PPO" = "1" ]; then pip install --no-cache-dir -r requirements-rl.txt; fi
 
 # Application code
 COPY . .

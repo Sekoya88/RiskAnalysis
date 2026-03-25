@@ -21,13 +21,32 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from loguru import logger
 
 load_dotenv()
+
+
+def _emit_message_trace(trace_sink: Callable[[dict[str, Any]], None], msg: Any) -> None:
+    """Emit lightweight eval events for LLM / tool messages (no content payloads)."""
+    try:
+        from langchain_core.messages import AIMessage, ToolMessage
+    except ImportError:
+        return
+
+    if isinstance(msg, AIMessage):
+        trace_sink({"type": "llm_message", "role": "assistant"})
+        for tc in getattr(msg, "tool_calls", None) or []:
+            name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+            if name:
+                trace_sink({"type": "tool_call", "tool": name})
+    elif isinstance(msg, ToolMessage):
+        trace_sink({"type": "tool_result", "tool": getattr(msg, "name", None)})
 
 
 # ── Default analysis queries ──────────────────────────────────────────
@@ -54,6 +73,8 @@ async def run_analysis(
     query: str,
     use_redis: bool = False,
     thread_id: str | None = None,
+    langfuse_handler: object | None = None,
+    trace_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, dict, list, dict | None]:
     """Execute a full multi-agent risk analysis."""
     from src.container import bootstrap
@@ -100,9 +121,18 @@ async def run_analysis(
                 logger.info(f"Query: {query[:100]}...")
                 logger.info(f"Thread ID: {thread_id}")
                 logger.info("State Backend: Redis")
-                return await _execute_graph(graph, initial_state, config)
+                return await _execute_graph(graph, initial_state, config, langfuse_handler, trace_sink)
         except Exception as e:
             logger.warning(f"Redis failed ({e}). Falling back to in-memory state.")
+            if trace_sink:
+                trace_sink(
+                    {
+                        "type": "recovery",
+                        "reason": str(e),
+                        "from_backend": "redis",
+                        "to_backend": "memory",
+                    }
+                )
 
     # In-memory fallback
     from langgraph.checkpoint.memory import MemorySaver
@@ -112,20 +142,42 @@ async def run_analysis(
     logger.info(f"Query: {query[:100]}...")
     logger.info(f"Thread ID: {thread_id}")
     logger.info(f"State Backend: {backend_label}")
-    return await _execute_graph(graph, initial_state, config)
+    return await _execute_graph(graph, initial_state, config, langfuse_handler, trace_sink)
 
 
-async def _execute_graph(graph, initial_state, config):
+async def _execute_graph(
+    graph,
+    initial_state,
+    config,
+    langfuse_handler=None,
+    trace_sink: Callable[[dict[str, Any]], None] | None = None,
+):
     """Run the graph and extract report + sources."""
     from src.domain.services.report_builder import extract_text
     from langchain_core.messages import ToolMessage as _ToolMessage
 
     start_time = time.time()
+    if trace_sink:
+        trace_sink({"type": "run_start", "t_wall": time.time()})
 
-    async for event in graph.astream(initial_state, config=config):
+    from src.infrastructure.observability.langfuse_tracer import build_langfuse_config
+    thread_id = config.get("configurable", {}).get("thread_id")
+    model = os.getenv("OLLAMA_MODEL", "unknown")
+    stream_config = build_langfuse_config(config, session_id=thread_id, handler=langfuse_handler, model=model)
+
+    async for event in graph.astream(initial_state, config=stream_config):
         for node_name, node_output in event.items():
             elapsed = time.time() - start_time
             logger.info(f"[{elapsed:.1f}s] Node: {node_name}")
+            if trace_sink:
+                trace_sink(
+                    {
+                        "type": "graph_node",
+                        "node": node_name,
+                        "elapsed_s": elapsed,
+                        "t_wall": time.time(),
+                    }
+                )
 
             if "messages" in node_output:
                 for msg in node_output["messages"]:
@@ -133,11 +185,15 @@ async def _execute_graph(graph, initial_state, config):
                         logger.debug(f"Agent: {msg.name}")
                     content_preview = msg.content[:200] if msg.content else ""
                     logger.debug(f"Output: {content_preview}...")
+                    if trace_sink:
+                        _emit_message_trace(trace_sink, msg)
 
             if "next_agent" in node_output:
                 logger.info(f"Next: {node_output['next_agent']}")
 
     elapsed = time.time() - start_time
+    if trace_sink:
+        trace_sink({"type": "graph_stream_end", "elapsed_s": elapsed, "t_wall": time.time()})
     logger.info("=" * 70)
     logger.info(f"Analysis completed in {elapsed:.1f} seconds")
     logger.info("=" * 70)
@@ -150,6 +206,7 @@ async def _execute_graph(graph, initial_state, config):
     try:
         from src.domain.services.risk_scoring import compute_rl_weight
         from src.db import get_source_feedback_score
+        from src.rl.inference import ppo_weight_delta_optional
         
         snapshot = await graph.aget_state(config)
         if snapshot and snapshot.values:
@@ -192,6 +249,8 @@ async def _execute_graph(graph, initial_state, config):
                             try:
                                 base_score = get_source_feedback_score(entry["url"])
                                 rl_weight = compute_rl_weight(base_score, entry["date"])
+                                rl_weight += ppo_weight_delta_optional(base_score, entry["url"])
+                                rl_weight = max(0.01, min(2.5, rl_weight))
                                 entry["score"] = rl_weight
                             except Exception:
                                 pass
@@ -212,6 +271,8 @@ async def _execute_graph(graph, initial_state, config):
                             try:
                                 base_score = get_source_feedback_score(entry["url"])
                                 rl_weight = compute_rl_weight(base_score, entry["date"])
+                                rl_weight += ppo_weight_delta_optional(base_score, entry["url"])
+                                rl_weight = max(0.01, min(2.5, rl_weight))
                                 entry["score"] = rl_weight
                             except Exception:
                                 pass
@@ -257,6 +318,16 @@ async def _execute_graph(graph, initial_state, config):
     if not structured_report and final_report:
         from src.domain.models.risk_report import parse_report_to_structured
         structured_report = parse_report_to_structured(final_report).model_dump()
+
+    if trace_sink:
+        trace_sink(
+            {
+                "type": "run_end",
+                "has_report": bool(final_report and final_report.strip()),
+                "news_sources": len(sources.get("news") or []),
+                "rag_sources": len(sources.get("rag") or []),
+            }
+        )
 
     return final_report, sources, token_usage, structured_report
 

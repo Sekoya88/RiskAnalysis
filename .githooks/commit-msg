@@ -1,0 +1,7 @@
+#!/bin/sh
+# Remove IDE footers from commit messages (run: git config core.hooksPath .githooks)
+msgfile=$1
+[ -f "$msgfile" ] || exit 0
+tmp="${msgfile}.strip"
+grep -vE '^Made-with:[[:space:]]*Cursor|^Co-authored-by:.*[Cc]ursor' "$msgfile" > "$tmp" && mv "$tmp" "$msgfile"
+exit 0

@@ -135,3 +135,13 @@ class SQLiteFeedbackRepository:
         total, helpful = cursor.fetchone()
         conn.close()
         return compute_feedback_score(total or 0, helpful or 0)
+
+    def list_feedback_votes(self) -> list[tuple[str, bool]]:
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT news_url, is_helpful FROM feedback WHERE news_url IS NOT NULL AND news_url != ''",
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [(str(u), bool(h)) for u, h in rows]

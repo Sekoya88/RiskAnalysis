@@ -31,7 +31,7 @@ _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 _DB_PATH = os.path.join(_DATA_DIR, "risk_history.db")
 _CHROMA_DIR = os.path.join(_DATA_DIR, "chroma_db")
 _DOCS_DIR = os.path.join(_DATA_DIR, "docs")
-_MEMORY_PATH = os.path.join(_DATA_DIR, "AGENTS.md")
+_MEMORY_PATH = os.path.join(_DATA_DIR, "agent_memory.md")
 
 # ── Singleton adapters (lazily initialized) ─────────────────────────
 _report_repo: Any = None
