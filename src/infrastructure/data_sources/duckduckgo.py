@@ -52,7 +52,15 @@ class DuckDuckGoAdapter:
         base_score = 0.5
         if self._feedback_repo and url:
             base_score = self._feedback_repo.get_source_feedback_score(url)
-        return compute_rl_weight(base_score, date_str)
+        w = compute_rl_weight(base_score, date_str)
+        try:
+            from src.rl.inference import ppo_weight_delta_optional
+
+            w += ppo_weight_delta_optional(base_score, url)
+            w = max(0.01, min(2.5, w))
+        except Exception:
+            pass
+        return w
 
     def search_news(self, query: str, region: str = "wt-wt", max_results: int = 8) -> str:
         try:

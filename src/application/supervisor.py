@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from loguru import logger
 
 from src.application.dto import AgentState
@@ -52,7 +52,15 @@ Here are the final synthesized reports from your team:
 {reports_context}
 """
 
-    messages = [SystemMessage(content=system_msg)]
+    messages = [
+        SystemMessage(content=system_msg),
+        HumanMessage(
+            content=(
+                "Evaluate the reports above. Reply with a single JSON object only, "
+                'as described in the skill (e.g. {"next":"FINISH","reasoning":"..."}).'
+            )
+        ),
+    ]
 
     logger.info("Supervisor evaluating completion based on final reports...")
 

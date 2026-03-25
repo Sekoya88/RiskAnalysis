@@ -4,6 +4,11 @@ import queue
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +20,10 @@ from src.main import run_analysis
 from src.agents.nodes import set_log_queue
 from src.infrastructure.observability.langfuse_tracer import get_langfuse_handler, shutdown_langfuse
 import src.db as db
+
+from evaluation.collector import RunTraceCollector
+from evaluation.metrics import compute_metric_scores_with_report, retrieval_prf1
+from evaluation.schemas import GroundTruth, GroundTruthRetrieval, GroundTruthTools
 
 # ── WebSocket Manager for Live Logs ──────────────────────────────────
 log_queue: queue.Queue = queue.Queue(maxsize=1000)
@@ -85,6 +94,44 @@ app.add_middleware(
 )
 
 
+@app.get("/api/runtime-info")
+async def runtime_info():
+    """Expose DB profile, PPO, Langfuse URL/reachability for the UI (no secrets)."""
+    import httpx
+
+    from src.rl.inference import (
+        ppo_checkpoint_file_exists,
+        ppo_disabled,
+        ppo_policy_effective,
+        resolved_ppo_checkpoint_path,
+        torch_available,
+    )
+
+    lf_host = os.getenv("LANGFUSE_HOST", "http://localhost:3001").rstrip("/")
+    lf_keys = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+    lf_reachable = False
+    if lf_keys:
+        try:
+            async with httpx.AsyncClient(timeout=1.5) as client:
+                r = await client.get(lf_host, follow_redirects=True)
+                lf_reachable = r.status_code < 500
+        except Exception:
+            lf_reachable = False
+
+    return {
+        "api_version": app.version,
+        "database_profile": "postgres" if os.getenv("DATABASE_URL") else "sqlite",
+        "ppo_disabled": ppo_disabled(),
+        "ppo_checkpoint_present": ppo_checkpoint_file_exists(),
+        "ppo_torch_installed": torch_available(),
+        "ppo_policy_configured": ppo_policy_effective(),
+        "ppo_score_delta_default": float(os.getenv("PPO_SCORE_DELTA", "0.1")),
+        "langfuse_host": lf_host,
+        "langfuse_keys_configured": lf_keys,
+        "langfuse_reachable": lf_reachable,
+    }
+
+
 # ── WebSocket ─────────────────────────────────────────────────────────
 
 @app.websocket("/api/ws/stream")
@@ -104,6 +151,46 @@ class AnalyzeRequest(BaseModel):
     query: str = Field(..., description="The risk analysis query.")
     use_redis: bool = Field(default=True, description="Use Redis for LangGraph state checkpointer.")
     model: str = Field(default="qwen3.5", description="Model to use.")
+    # Optional labels for retrieval / faithfulness / tool-order metrics (UI « ground truth »)
+    metrics_relevant_urls: list[str] | None = Field(
+        default=None,
+        description="News URLs judged relevant (P/R/F1 vs retrieved news).",
+    )
+    metrics_relevant_doc_keys: list[str] | None = Field(
+        default=None,
+        description="RAG source keys judged relevant (P/R/F1 vs RAG hits).",
+    )
+    metrics_reference_facts: list[str] | None = Field(
+        default=None,
+        description="Short strings expected in report text (faithfulness proxy).",
+    )
+    metrics_expected_tools: list[str] | None = Field(
+        default=None,
+        description="Expected tool call order prefix (tool-use accuracy).",
+    )
+    metrics_task_completed: bool | None = Field(
+        default=None,
+        description="If set, overrides heuristic task-completion score.",
+    )
+
+
+def metrics_labels_from_request(req: AnalyzeRequest) -> GroundTruth | None:
+    urls = [u.strip() for u in (req.metrics_relevant_urls or []) if u and str(u).strip()]
+    docs = [d.strip() for d in (req.metrics_relevant_doc_keys or []) if d and str(d).strip()]
+    facts = [f.strip() for f in (req.metrics_reference_facts or []) if f and str(f).strip()]
+    tools = [t.strip() for t in (req.metrics_expected_tools or []) if t and str(t).strip()]
+    if not urls and not docs and not facts and not tools and req.metrics_task_completed is None:
+        return None
+    retrieval = None
+    if urls or docs:
+        retrieval = GroundTruthRetrieval(relevant_urls=set(urls), relevant_doc_keys=set(docs))
+    tools_gt = GroundTruthTools(expected_tool_sequence=tools) if tools else None
+    return GroundTruth(
+        task_completed=req.metrics_task_completed,
+        retrieval=retrieval,
+        tools=tools_gt,
+        reference_facts=facts,
+    )
 
 
 class FeedbackRequest(BaseModel):
@@ -132,12 +219,14 @@ async def analyze(req: AnalyzeRequest):
     })
     start_time = time.time()
 
+    trace_collector = RunTraceCollector(run_id=thread_id)
     try:
         report, sources, token_usage, structured_report = await run_analysis(
             query=req.query,
             use_redis=req.use_redis,
             thread_id=thread_id,
             langfuse_handler=langfuse_handler,
+            trace_sink=trace_collector,
         )
 
         try:
@@ -158,6 +247,39 @@ async def analyze(req: AnalyzeRequest):
             "thread_id": thread_id,
         })
 
+        ended_at = datetime.utcnow()
+        eval_record = trace_collector.build_run_record(
+            query=req.query,
+            success=True,
+            error_message=None,
+            token_usage=token_usage,
+            sources=sources,
+            structured_report=structured_report,
+            final_report=report,
+            ended_at=ended_at,
+        )
+        gt = metrics_labels_from_request(req)
+        eval_scores = compute_metric_scores_with_report(
+            eval_record,
+            report,
+            gt,
+            model_hint=req.model,
+        )
+        run_metrics = eval_scores.model_dump()
+        run_metrics["total_input_tokens"] = eval_record.total_input_tokens
+        run_metrics["total_output_tokens"] = eval_record.total_output_tokens
+        run_metrics["total_cached_tokens"] = eval_record.total_cached_tokens
+        run_metrics["graph_node_names"] = eval_record.graph_node_names
+        if gt and gt.retrieval and gt.retrieval.relevant_doc_keys:
+            rp, rr, rf1 = retrieval_prf1(
+                eval_record.retrieved_rag_keys,
+                gt.retrieval.relevant_doc_keys,
+            )
+            if rp is not None:
+                run_metrics["rag_retrieval_precision"] = rp
+                run_metrics["rag_retrieval_recall"] = rr
+                run_metrics["rag_retrieval_f1"] = rf1
+
         return {
             "status": "success",
             "thread_id": thread_id,
@@ -166,6 +288,7 @@ async def analyze(req: AnalyzeRequest):
             "token_usage": token_usage,
             "structured_report": structured_report,
             "elapsed_seconds": round(elapsed, 2),
+            "run_metrics": run_metrics,
         }
     except Exception as e:
         logger.exception("Analysis failed")

@@ -42,11 +42,11 @@ src/
 
 ## The Frontend (Next.js)
 
-The user interface has been decoupled into its own repository following professional, scalable patterns.
+The UI can live in a **sibling folder** (e.g. `../riskanalysis-ui` next to this repo) or in the separate **[RiskAnalysis-UI](https://github.com/Sekoya88/RiskAnalysis-UI)** repository.
 
-👉 **[RiskAnalysis-UI Repository](https://github.com/Sekoya88/RiskAnalysis-UI)**
+It features a high-contrast monochrome design, WebSocket log streaming, markdown reports, optional **metrics labels** (ground truth), and a **runtime bar** (DB Postgres/SQLite + PPO on/off via `GET /api/runtime-info`, checkpoint par défaut `data/ppo_source_policy.pt`, désactivable avec `PPO_DISABLED=1`).
 
-It features a high-contrast monochrome design inspired by Vercel/21st.dev, real-time log streaming from the agents, and markdown report rendering.
+See also **`CODEBASE_CONTEXT.md`** in this repo for an architecture snapshot.
 
 ## Multi-Agent Flow
 
@@ -91,11 +91,23 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Optional — use the repo Git hooks so commit messages are not polluted with `Made-with: Cursor` trailers:
+
+```sh
+just git-hooks
+```
+
 Start the infrastructure (PostgreSQL and Redis) via Docker:
 
 ```sh
 docker compose up postgres redis -d
 ```
+
+**Postgres Docker : port host `15432` par défaut** (`POSTGRES_PORT_PUBLISH` dans `.env`). Évite à la fois le Postgres local (`5432`) et d’autres services sur `5433`. Dans `.env`, garde le **même** port dans `DATABASE_URL` et `POSTGRES_PORT_PUBLISH`.
+
+Si Docker affiche `Bind for 0.0.0.0:15432 failed: port is already allocated`, choisis un port libre (ex. `5434`) dans `.env` pour les deux variables, puis `docker compose up -d postgres redis`.
+
+Si tu vois `FATAL: role "risk" does not exist`, `DATABASE_URL` pointe vers la mauvaise instance : vérifie le port. Pour repartir à zéro côté Docker : `docker compose down -v` puis `docker compose up postgres redis -d`.
 
 Pull the required local AI models via Ollama:
 
@@ -115,28 +127,37 @@ cp .env.example .env
 Start the FastAPI server:
 
 ```sh
-just dev
-# Or manually: uvicorn src.api:app --reload
+just backend    # Docker deps + crée data/ppo_source_policy.pt si torch + fichier absent, puis uvicorn
+# ou: just dev   (sans Docker stack ni PPO ensure)
+# ou: uvicorn src.api:app --reload
 ```
 The API will be available at `http://127.0.0.1:8000`.
 
+**PPO** (scores des sources, pas le LLM) : par défaut le backend charge **`data/ppo_source_policy.pt`** s’il existe. Avec **`pip install -r requirements-rl.txt`**, **`just backend`** lance automatiquement l’entraînement **skip-if-exists** avant uvicorn (équivalent **`just ppo-ensure`**). Manuellement : **`just ppo-ensure`**.
+
+Désactiver : **`PPO_DISABLED=1`** dans `.env`. Autre fichier : **`PPO_SOURCE_POLICY_PATH=/chemin/vers.pt`** (prioritaire sur le défaut).
+
 ### 3. Run the Frontend UI
 
-Open a new terminal window, clone the frontend repository, and start it:
+From a **sibling checkout** (example: `RiskAnalysis` and `riskanalysis-ui` in the same parent directory):
 
 ```sh
-git clone https://github.com/Sekoya88/RiskAnalysis-UI.git
-cd RiskAnalysis-UI
-
-# Install dependencies
+cd ../riskanalysis-ui   # adjust path if needed
 npm install
-
-# Start the development server
 just dev
-# Or manually: npm run dev -- -H 127.0.0.1
+# Or: npm run dev -- -H 127.0.0.1
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000) with your browser to use the application. The frontend automatically connects to the backend API and WebSocket for live streaming.
+Or clone the standalone UI repo as in the original instructions. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+If the API is not on localhost, set in `riskanalysis-ui/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8000
+```
+
+The UI polls `GET /api/runtime-info` to show **Postgres vs SQLite** and **PPO on/off**.
 
 ## Observability
 
@@ -147,10 +168,14 @@ The framework ships with dual observability out of the box.
 Tracks every LLM call with token counts, costs, and session grouping. Runs entirely locally — no data leaves your machine.
 
 ```sh
-docker compose up langfuse -d
+just db-langfuse    # une fois : crée la base `langfuse` dans le conteneur Postgres
+just langfuse-up    # ou : docker compose up postgres redis langfuse -d
 # UI → http://localhost:3001
 # Create a project, copy the keys into .env (LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY)
+# LANGFUSE_HOST=http://localhost:3001
 ```
+
+Connexion SQL (Beekeeper, etc.) : voir **`docs/BEEKEEPER.md`**.
 
 > **Note:** Uses a custom `LangfuseV2Callback` (compatible with Langfuse server v2.x OSS).
 > The official SDK v3/v4 sends traces via OpenTelemetry which is only supported by Langfuse server v3+.

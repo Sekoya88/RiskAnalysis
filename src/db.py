@@ -47,3 +47,7 @@ def save_feedback(report_id, news_url, is_helpful, comments=""):
 
 def get_source_feedback_score(url):
     return _feedback_repo.get_source_feedback_score(url)
+
+
+def list_feedback_votes() -> list[tuple[str, bool]]:
+    return _feedback_repo.list_feedback_votes()

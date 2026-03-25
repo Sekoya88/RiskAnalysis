@@ -20,6 +20,7 @@ Thumbs.db
 
 # Data & output
 data/chroma_db/
+data/ppo_source_policy.pt
 output/
 
 # Docker

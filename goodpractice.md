@@ -89,7 +89,7 @@ Guide de conception pour des pipelines multi-agents **rentables**, **rigoureux**
 - **Time Decay** : Ajouter des bonus aux sources ultra-récentes (HOT < 24h, RECENT < 72h) pour prioriser la fraîcheur de l'information.
 
 ### 4.4 Agent Memory (Contexte Persistant)
-- Maintenir un fichier (ex: `AGENTS.md`) mis à jour automatiquement à chaque run pour offrir aux agents une mémoire cross-session des analyses passées.
+- Maintenir un fichier persistant (ex: `data/agent_memory.md`) mis à jour automatiquement à chaque run pour offrir aux agents une mémoire cross-session des analyses passées.
 
 ---
 

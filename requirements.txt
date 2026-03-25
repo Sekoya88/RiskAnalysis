@@ -24,6 +24,7 @@ rank_bm25
 requests
 pyyaml
 tomli;python_version<"3.11"
+pytest>=8.0
 # Optional fallback: ChromaDB (only needed without DATABASE_URL)
 # langchain-chroma
 # chromadb

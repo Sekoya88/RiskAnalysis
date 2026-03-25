@@ -3,8 +3,9 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     container_name: risk-postgres
+    # Host port: set POSTGRES_PORT_PUBLISH in .env if the default is taken (e.g. 15432, 5434).
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT_PUBLISH:-15432}:5432"
     environment:
       POSTGRES_DB: riskanalysis
       POSTGRES_USER: risk
@@ -55,6 +56,25 @@ services:
     volumes:
       - ./output:/app/output
       - ./data:/app/data
+    restart: unless-stopped
+
+  # ── Langfuse — LLM Observability & Tracing ───────────────────────
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: risk-langfuse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+    environment:
+      - DATABASE_URL=postgresql://risk:${POSTGRES_PASSWORD:-riskpass}@postgres:5432/langfuse
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:-supersecret-change-in-prod}
+      - SALT=${LANGFUSE_SALT:-salt-change-in-prod}
+      - NEXTAUTH_URL=http://localhost:3001
+      - TELEMETRY_ENABLED=false
+      - LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES=false
+      - NEXT_PUBLIC_SIGN_UP_DISABLED=false
     restart: unless-stopped
 
 volumes:

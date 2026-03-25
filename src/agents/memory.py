@@ -6,7 +6,7 @@ import os
 from src.infrastructure.persistence.memory import FileMemoryAdapter
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-_MEMORY_PATH = os.path.join(_PROJECT_ROOT, "data", "AGENTS.md")
+_MEMORY_PATH = os.path.join(_PROJECT_ROOT, "data", "agent_memory.md")
 
 _adapter = FileMemoryAdapter(_MEMORY_PATH)
 

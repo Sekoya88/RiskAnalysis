@@ -135,3 +135,10 @@ class PostgresFeedbackRepository:
             ).fetchone()
             total, helpful = row if row else (0, 0)
             return compute_feedback_score(total or 0, helpful or 0)
+
+    def list_feedback_votes(self) -> list[tuple[str, bool]]:
+        with psycopg.connect(self._dsn) as conn:
+            rows = conn.execute(
+                "SELECT news_url, is_helpful FROM feedback WHERE news_url IS NOT NULL AND news_url != ''",
+            ).fetchall()
+            return [(str(r[0]), bool(r[1])) for r in rows]

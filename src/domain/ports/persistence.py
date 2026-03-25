@@ -26,6 +26,10 @@ class FeedbackRepositoryPort(Protocol):
     def get_source_feedback_score(self, url: str) -> float:
         ...
 
+    def list_feedback_votes(self) -> list[tuple[str, bool]]:
+        """All (news_url, is_helpful) rows for PPO / offline RL training."""
+        ...
+
 
 @runtime_checkable
 class MemoryPort(Protocol):
